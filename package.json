@@ -1,0 +1,9 @@
+{
+  "name": "chart-of-accounts-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simple Chart of Accounts management web app",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

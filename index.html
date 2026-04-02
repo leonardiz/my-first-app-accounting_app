@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chart of Accounts Manager</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Toggle sidebar">
+        &#9776;
+      </button>
+
+      <aside class="sidebar panel is-open" id="sidebar">
+        <div class="sidebar-brand">
+          <p class="eyebrow">Finance Suite</p>
+          <h1>Accounting Workspace</h1>
+        </div>
+        <nav class="sidebar-nav" aria-label="Primary">
+          <button class="nav-item is-active" type="button" data-view-target="chart">
+            <span class="nav-icon">#</span>
+            <span class="nav-label">Chart of Accounts</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="journal">
+            <span class="nav-icon">J</span>
+            <span class="nav-label">Journal Entries</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="ledger">
+            <span class="nav-icon">L</span>
+            <span class="nav-label">General Ledger</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="trial-balance">
+            <span class="nav-icon">T</span>
+            <span class="nav-label">Trial Balance</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="income-statement">
+            <span class="nav-icon">I</span>
+            <span class="nav-label">Income Statement</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="balance-sheet">
+            <span class="nav-icon">B</span>
+            <span class="nav-label">Balance Sheet</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="cash-flow">
+            <span class="nav-icon">C</span>
+            <span class="nav-label">Cash Flow Statement</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="ai-assistant">
+            <span class="nav-icon">AI</span>
+            <span class="nav-label">AI Assistant</span>
+          </button>
+        </nav>
+      </aside>
+
+      <main class="main-shell">
+        <section class="page-header panel">
+          <p class="eyebrow">Finance Suite</p>
+          <h2>Accounting Workspace</h2>
+          <p class="hero-copy">
+            Navigate each financial statement and operational view as a dedicated page.
+          </p>
+        </section>
+
+        <div class="view-stack">
+        <section class="view-panel is-active" data-view="chart">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Chart Of Accounts</p>
+              <h2>Account Register</h2>
+              <p class="hero-copy">
+                Maintain account codes, opening balances, and core classifications in one place.
+              </p>
+            </div>
+            <div class="hero-actions">
+              <button class="primary-button" id="add-account-button" type="button">Add Account</button>
+            </div>
+          </header>
+
+          <div class="content-grid">
+            <section class="panel stats-panel">
+              <div class="stat-card">
+                <span class="stat-label">Total Accounts</span>
+                <strong class="stat-value" id="total-accounts">0</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Total Opening Balance</span>
+                <strong class="stat-value" id="total-balance">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Journal Entries</span>
+                <strong class="stat-value" id="total-journal-entries">0</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Lines Posted</span>
+                <strong class="stat-value" id="total-journal-lines">0</strong>
+              </div>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Account Register</h3>
+                  <p>Track every account in one structured view.</p>
+                </div>
+              </div>
+
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Account Name</th>
+                      <th>Type</th>
+                      <th class="numeric">Opening Balance</th>
+                      <th class="actions-column">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="accounts-table-body"></tbody>
+                </table>
+              </div>
+
+              <div class="empty-state hidden" id="accounts-empty-state">
+                <h3>No accounts yet</h3>
+                <p>Add your first account to start building the chart.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view-panel" data-view="journal">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Journal Entries</p>
+              <h2>Record Transactions</h2>
+              <p class="hero-copy">
+                Post balanced debit and credit activity against your chart of accounts.
+              </p>
+            </div>
+            <div class="hero-actions">
+              <button class="primary-button" id="add-journal-button" type="button">
+                Add Journal Entry
+              </button>
+            </div>
+          </header>
+
+          <section class="panel table-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>Journal Entries</h3>
+                <p>Record balanced debit and credit transactions against the chart of accounts.</p>
+              </div>
+            </div>
+
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th class="numeric">Lines</th>
+                    <th class="numeric">Total</th>
+                    <th>Balance Status</th>
+                    <th class="actions-column">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="journal-table-body"></tbody>
+              </table>
+            </div>
+
+            <div class="empty-state hidden" id="journal-empty-state">
+              <h3>No journal entries yet</h3>
+              <p>Create a balanced entry with at least one debit and one credit line.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="view-panel" data-view="ledger">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">General Ledger</p>
+              <h2>Account Activity</h2>
+              <p class="hero-copy">
+                Review opening balances, posted transactions, running balances, and closing positions.
+              </p>
+            </div>
+          </header>
+
+          <section class="panel table-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>General Ledger</h3>
+                <p>Each account is grouped with its own running balance trail.</p>
+              </div>
+            </div>
+
+            <div class="ledger-list" id="ledger-list"></div>
+
+            <div class="empty-state hidden" id="ledger-empty-state">
+              <h3>No ledger activity yet</h3>
+              <p>Add accounts and post journal entries to populate the general ledger.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="view-panel" data-view="trial-balance">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Trial Balance</p>
+              <h2>Debit And Credit Review</h2>
+              <p class="hero-copy">
+                Compare total debits, credits, and closing balances across all accounts.
+              </p>
+            </div>
+            <div class="hero-actions">
+              <button class="secondary-button print-hide" id="print-trial-balance-button" type="button">
+                Print / Export PDF
+              </button>
+            </div>
+          </header>
+
+          <section class="panel table-panel" id="trial-balance-section">
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Account Name</th>
+                    <th>Type</th>
+                    <th class="numeric">Total Debits</th>
+                    <th class="numeric">Total Credits</th>
+                    <th class="numeric">Closing Debit</th>
+                    <th class="numeric">Closing Credit</th>
+                  </tr>
+                </thead>
+                <tbody id="trial-balance-table-body"></tbody>
+                <tfoot id="trial-balance-table-foot"></tfoot>
+              </table>
+            </div>
+
+            <div class="empty-state hidden" id="trial-balance-empty-state">
+              <h3>No trial balance data yet</h3>
+              <p>Add accounts to generate the report and post journals to update balances.</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="view-panel" data-view="income-statement">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Income Statement</p>
+              <h2>Profit And Loss</h2>
+              <p class="hero-copy">
+                Revenue and expense accounts roll up automatically into gross profit and net income.
+              </p>
+            </div>
+          </header>
+
+          <div class="content-grid">
+            <section class="panel stats-panel income-stats">
+              <div class="stat-card">
+                <span class="stat-label">Revenue</span>
+                <strong class="stat-value" id="income-total-revenue">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Gross Profit</span>
+                <strong class="stat-value" id="income-gross-profit">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Operating Expenses</span>
+                <strong class="stat-value" id="income-operating-expenses">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Net Income / Loss</span>
+                <strong class="stat-value" id="income-net-income">$0.00</strong>
+              </div>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Income Statement</h3>
+                  <p>
+                    Gross profit currently equals total revenue because there is no separate cost of sales category in the chart.
+                  </p>
+                </div>
+              </div>
+
+              <div class="statement-layout">
+                <div class="statement-block">
+                  <h3>Revenue</h3>
+                  <div id="income-revenue-list" class="statement-list"></div>
+                </div>
+                <div class="statement-block">
+                  <h3>Operating Expenses</h3>
+                  <div id="income-expense-list" class="statement-list"></div>
+                </div>
+              </div>
+
+              <div class="summary-table-wrapper">
+                <table>
+                  <tbody id="income-summary-body"></tbody>
+                </table>
+              </div>
+
+              <div class="empty-state hidden" id="income-statement-empty-state">
+                <h3>No income statement data yet</h3>
+                <p>Add revenue or expense accounts and post activity to generate this statement.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view-panel" data-view="balance-sheet">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Balance Sheet</p>
+              <h2>Statement Of Financial Position</h2>
+              <p class="hero-copy">
+                Review closing balances for assets, liabilities, equity, and retained earnings.
+              </p>
+            </div>
+          </header>
+          <div class="content-grid">
+            <section class="panel stats-panel income-stats">
+              <div class="stat-card">
+                <span class="stat-label">Total Assets</span>
+                <strong class="stat-value" id="balance-sheet-total-assets">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Total Liabilities</span>
+                <strong class="stat-value" id="balance-sheet-total-liabilities">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Total Equity</span>
+                <strong class="stat-value" id="balance-sheet-total-equity">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Balance Difference</span>
+                <strong class="stat-value" id="balance-sheet-difference">$0.00</strong>
+              </div>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Balance Sheet</h3>
+                  <p>Total assets should equal total liabilities plus equity.</p>
+                </div>
+              </div>
+
+              <div class="statement-layout statement-layout-3">
+                <div class="statement-block section-card section-assets">
+                  <div class="section-card-header">
+                    <h3>Assets</h3>
+                  </div>
+                  <div class="section-card-body">
+                    <div id="balance-sheet-assets-list" class="statement-list"></div>
+                    <div id="balance-sheet-assets-subtotal" class="section-subtotal"></div>
+                  </div>
+                </div>
+                <div class="statement-block section-card section-liabilities">
+                  <div class="section-card-header">
+                    <h3>Liabilities</h3>
+                  </div>
+                  <div class="section-card-body">
+                    <div id="balance-sheet-liabilities-list" class="statement-list"></div>
+                    <div id="balance-sheet-liabilities-subtotal" class="section-subtotal"></div>
+                  </div>
+                </div>
+                <div class="statement-block section-card section-equity">
+                  <div class="section-card-header">
+                    <h3>Equity</h3>
+                  </div>
+                  <div class="section-card-body">
+                    <div id="balance-sheet-equity-list" class="statement-list"></div>
+                    <div id="balance-sheet-equity-subtotal" class="section-subtotal"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="balance-figures">
+                <div class="balance-figure-card">
+                  <span>Total Assets</span>
+                  <strong id="balance-sheet-assets-figure">$0.00</strong>
+                </div>
+                <div class="balance-figure-card">
+                  <span>Total Liabilities + Equity</span>
+                  <strong id="balance-sheet-liabilities-equity-figure">$0.00</strong>
+                </div>
+              </div>
+
+              <div class="balance-check-row">
+                <span class="balance-badge" id="balance-sheet-badge">BALANCED</span>
+              </div>
+
+              <div class="summary-table-wrapper">
+                <table>
+                  <tbody id="balance-sheet-summary-body"></tbody>
+                </table>
+              </div>
+
+              <div class="report-status" id="balance-sheet-check-status"></div>
+
+              <div class="empty-state hidden" id="balance-sheet-empty-state">
+                <h3>No balance sheet data yet</h3>
+                <p>Add accounts and post activity to generate the statement of financial position.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view-panel" data-view="cash-flow">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Cash Flow Statement</p>
+              <h2>Cash Movement Analysis</h2>
+              <p class="hero-copy">
+                Review operating, investing, and financing cash movements generated from posted journals.
+              </p>
+            </div>
+          </header>
+          <div class="content-grid">
+            <section class="panel stats-panel income-stats">
+              <div class="stat-card">
+                <span class="stat-label">Opening Cash</span>
+                <strong class="stat-value" id="cash-flow-opening-cash">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Net Cash Movement</span>
+                <strong class="stat-value" id="cash-flow-net-movement">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Closing Cash</span>
+                <strong class="stat-value" id="cash-flow-closing-cash">$0.00</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Cash Balance Check</span>
+                <strong class="stat-value" id="cash-flow-balance-check">$0.00</strong>
+              </div>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Cash Flow Statement</h3>
+                  <p>
+                    Operating uses an indirect approach with working-capital adjustments inferred from account names and types.
+                  </p>
+                </div>
+              </div>
+
+              <div class="statement-layout statement-layout-3">
+                <div class="statement-block section-card section-assets">
+                  <div class="section-card-header">
+                    <h3>Operating Activities</h3>
+                  </div>
+                  <div class="section-card-body">
+                    <div id="cash-flow-operating-list" class="statement-list"></div>
+                    <div id="cash-flow-operating-subtotal" class="section-subtotal"></div>
+                  </div>
+                </div>
+                <div class="statement-block section-card section-liabilities">
+                  <div class="section-card-header">
+                    <h3>Investing Activities</h3>
+                  </div>
+                  <div class="section-card-body">
+                    <div id="cash-flow-investing-list" class="statement-list"></div>
+                    <div id="cash-flow-investing-subtotal" class="section-subtotal"></div>
+                  </div>
+                </div>
+                <div class="statement-block section-card section-equity">
+                  <div class="section-card-header">
+                    <h3>Financing Activities</h3>
+                  </div>
+                  <div class="section-card-body">
+                    <div id="cash-flow-financing-list" class="statement-list"></div>
+                    <div id="cash-flow-financing-subtotal" class="section-subtotal"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="summary-table-wrapper">
+                <table>
+                  <tbody id="cash-flow-summary-body"></tbody>
+                </table>
+              </div>
+
+              <div class="report-status" id="cash-flow-status"></div>
+
+              <div class="empty-state hidden" id="cash-flow-empty-state">
+                <h3>No cash flow data yet</h3>
+                <p>Add cash-related accounts and post activity to generate the cash flow statement.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view-panel" data-view="ai-assistant">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">AI Assistant</p>
+              <h2>Ask About Your Financial Data</h2>
+              <p class="hero-copy">
+                Ask questions about profitability, cash position, balances, or account activity using the live accounting data in this app.
+              </p>
+            </div>
+          </header>
+
+          <div class="content-grid">
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Financial Assistant</h3>
+                  <p>
+                    The assistant uses Anthropic Claude with the current chart of accounts, journals, balances, and statements as context.
+                  </p>
+                </div>
+              </div>
+
+              <div class="assistant-chat" id="assistant-chat"></div>
+
+              <form class="assistant-form" id="assistant-form">
+                <label class="assistant-input-group">
+                  <span>Ask a question</span>
+                  <textarea
+                    id="assistant-input"
+                    rows="3"
+                    placeholder="What is my net income? Analyze my cash position. Am I profitable?"
+                    required
+                  ></textarea>
+                </label>
+                <div class="assistant-actions">
+                  <button class="secondary-button" id="assistant-clear-button" type="button">
+                    Clear Chat
+                  </button>
+                  <button class="primary-button" id="assistant-send-button" type="submit">
+                    Send
+                  </button>
+                </div>
+              </form>
+
+              <div class="report-status" id="assistant-status"></div>
+            </section>
+          </div>
+        </section>
+        </div>
+      </main>
+    </div>
+
+    <dialog class="account-dialog" id="account-dialog">
+      <form class="account-form" id="account-form" method="dialog">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow" id="dialog-eyebrow">New Account</p>
+            <h2 id="dialog-title">Add Account</h2>
+          </div>
+          <button class="icon-button" id="close-dialog-button" type="button" aria-label="Close">
+            &times;
+          </button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            <span>Account Code</span>
+            <input id="account-code" name="accountCode" type="text" placeholder="1000" required />
+          </label>
+
+          <label>
+            <span>Account Name</span>
+            <input
+              id="account-name"
+              name="accountName"
+              type="text"
+              placeholder="Cash at Bank"
+              required
+            />
+          </label>
+
+          <label>
+            <span>Account Type</span>
+            <select id="account-type" name="accountType" required>
+              <option value="Asset">Asset</option>
+              <option value="Liability">Liability</option>
+              <option value="Equity">Equity</option>
+              <option value="Revenue">Revenue</option>
+              <option value="Expense">Expense</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Opening Balance</span>
+            <input
+              id="opening-balance"
+              name="openingBalance"
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              required
+            />
+          </label>
+        </div>
+
+        <p class="form-error hidden" id="form-error"></p>
+
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancel-button" type="button">Cancel</button>
+          <button class="primary-button" id="save-button" type="submit">Save Account</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="journal-dialog" id="journal-dialog">
+      <form class="journal-form" id="journal-form" method="dialog">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow" id="journal-dialog-eyebrow">New Entry</p>
+            <h2 id="journal-dialog-title">Add Journal Entry</h2>
+          </div>
+          <button
+            class="icon-button"
+            id="close-journal-dialog-button"
+            type="button"
+            aria-label="Close"
+          >
+            &times;
+          </button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            <span>Date</span>
+            <input id="journal-date" name="journalDate" type="date" required />
+          </label>
+
+          <label class="full-span">
+            <span>Description</span>
+            <input
+              id="journal-description"
+              name="journalDescription"
+              type="text"
+              placeholder="Office rent paid for April"
+              required
+            />
+          </label>
+        </div>
+
+        <div class="line-items-header">
+          <div>
+            <h3>Line Items</h3>
+            <p>At least two lines are required, and total debits must equal total credits.</p>
+          </div>
+          <button class="ghost-button" id="add-line-item-button" type="button">Add Line</button>
+        </div>
+
+        <div class="line-items-list" id="line-items-list"></div>
+
+        <div class="line-items-summary">
+          <div class="summary-chip">
+            <span>Total Debits</span>
+            <strong id="journal-total-debits">$0.00</strong>
+          </div>
+          <div class="summary-chip">
+            <span>Total Credits</span>
+            <strong id="journal-total-credits">$0.00</strong>
+          </div>
+          <div class="summary-chip">
+            <span>Status</span>
+            <strong id="journal-balance-status">Not Balanced</strong>
+          </div>
+        </div>
+
+        <p class="form-error hidden" id="journal-form-error"></p>
+
+        <div class="dialog-actions">
+          <button class="secondary-button" id="cancel-journal-button" type="button">Cancel</button>
+          <button class="primary-button" id="save-journal-button" type="submit">Save Entry</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
