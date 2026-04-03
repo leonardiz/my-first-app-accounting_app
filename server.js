@@ -4,8 +4,8 @@ const path = require("path");
 
 const port = process.env.PORT || 3000;
 const root = __dirname;
-const anthropicApiKey = process.env.ANTHROPIC_API_KEY || "";
-const anthropicModel = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+const geminiApiKey = process.env.GEMINI_API_KEY || "";
+const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -41,9 +41,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function handleAssistantRequest(req, res) {
-  if (!anthropicApiKey) {
+  if (!geminiApiKey) {
     writeJson(res, 500, {
-      error: "ANTHROPIC_API_KEY is not configured on the server.",
+      error: "GEMINI_API_KEY is not configured on the server.",
     });
     return;
   }
@@ -65,38 +65,47 @@ async function handleAssistantRequest(req, res) {
       JSON.stringify(financialData, null, 2),
     ].join("\n");
 
-    const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+      {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": anthropicApiKey,
-        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: anthropicModel,
-        max_tokens: 900,
-        system: systemPrompt,
-        messages: conversation,
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: conversation.map((message) => ({
+          role: message.role === "assistant" ? "model" : "user",
+          parts: [{ text: message.content || "" }],
+        })),
+        generationConfig: {
+          maxOutputTokens: 900,
+          temperature: 0.4,
+        },
       }),
-    });
+      },
+    );
 
-    const data = await anthropicResponse.json();
-    if (!anthropicResponse.ok) {
-      writeJson(res, anthropicResponse.status, {
-        error: data?.error?.message || "Anthropic request failed.",
+    const data = await geminiResponse.json();
+    if (!geminiResponse.ok) {
+      writeJson(res, geminiResponse.status, {
+        error: data?.error?.message || "Gemini request failed.",
       });
       return;
     }
 
-    const text = Array.isArray(data.content)
-      ? data.content
-          .filter((block) => block.type === "text")
-          .map((block) => block.text)
+    const text = Array.isArray(data.candidates)
+      ? data.candidates
+          .flatMap((candidate) => candidate?.content?.parts || [])
+          .filter((part) => typeof part?.text === "string")
+          .map((part) => part.text)
           .join("\n\n")
       : "";
 
     writeJson(res, 200, {
-      message: text || "No response returned from Anthropic.",
+      message: text || "No response returned from Gemini.",
     });
   } catch (error) {
     writeJson(res, 500, {
