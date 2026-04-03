@@ -3,23 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chart of Accounts Manager</title>
+    <title>LedgrAI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="app-shell">
-      <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Toggle sidebar">
-        &#9776;
+      <button
+        class="sidebar-toggle"
+        id="sidebar-toggle"
+        type="button"
+        aria-label="Toggle sidebar"
+        aria-expanded="true"
+      >
+        <span class="toggle-expanded-label">&#9776;</span>
+        <span class="toggle-collapsed-label">&#8594;</span>
       </button>
 
       <aside class="sidebar panel is-open" id="sidebar">
         <div class="sidebar-brand">
-          <p class="eyebrow">Finance Suite</p>
-          <h1>Accounting Workspace</h1>
+          <p class="eyebrow" data-brand-eyebrow>AI Accounting</p>
+          <h1 data-brand-name>LedgrAI</h1>
+          <p class="sidebar-brand-copy">Smart books, reporting, and setup in one workspace.</p>
         </div>
         <nav class="sidebar-nav" aria-label="Primary">
+          <button class="nav-item" type="button" data-view-target="company-setup">
+            <span class="nav-icon">CS</span>
+            <span class="nav-label">Company Setup</span>
+          </button>
           <button class="nav-item is-active" type="button" data-view-target="chart">
-            <span class="nav-icon">#</span>
+            <span class="nav-icon">COA</span>
             <span class="nav-label">Chart of Accounts</span>
           </button>
           <button class="nav-item" type="button" data-view-target="journal">
@@ -55,14 +73,110 @@
 
       <main class="main-shell">
         <section class="page-header panel">
-          <p class="eyebrow">Finance Suite</p>
-          <h2>Accounting Workspace</h2>
+          <p class="eyebrow" data-brand-eyebrow>AI Accounting</p>
+          <h2 data-page-title>LedgrAI Workspace</h2>
           <p class="hero-copy">
-            Navigate each financial statement and operational view as a dedicated page.
+            Navigate setup, bookkeeping, reporting, and AI support from one connected workspace.
           </p>
         </section>
 
         <div class="view-stack">
+        <section class="view-panel" data-view="company-setup">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Company Setup</p>
+              <h2>Business Profile And Onboarding</h2>
+              <p class="hero-copy">
+                Configure your business details, base currency, and financial year with guided setup.
+              </p>
+            </div>
+          </header>
+
+          <div class="content-grid company-setup-grid">
+            <section class="panel company-setup-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Company Setup</h3>
+                  <p>Keep your operating profile accurate so reports and AI guidance stay relevant.</p>
+                </div>
+              </div>
+
+              <form class="company-setup-form" id="company-setup-form">
+                <div class="form-grid">
+                  <label>
+                    <span>Company Name</span>
+                    <input id="company-name" name="companyName" type="text" placeholder="Victor Ventures Ltd" />
+                  </label>
+
+                  <label>
+                    <span>Industry</span>
+                    <input id="company-industry" name="industry" type="text" placeholder="Professional Services" />
+                  </label>
+
+                  <label>
+                    <span>Business Type</span>
+                    <input id="company-business-type" name="businessType" type="text" placeholder="Limited Liability Company" />
+                  </label>
+
+                  <label class="full-span">
+                    <span>Address</span>
+                    <input id="company-address" name="address" type="text" placeholder="12 Marina Road, Lagos" />
+                  </label>
+
+                  <label>
+                    <span>Phone</span>
+                    <input id="company-phone" name="phone" type="tel" placeholder="+234 800 000 0000" />
+                  </label>
+
+                  <label>
+                    <span>Email</span>
+                    <input id="company-email" name="email" type="email" placeholder="finance@company.com" />
+                  </label>
+
+                  <label>
+                    <span>Currency</span>
+                    <div class="currency-toggle" id="currency-toggle" role="group" aria-label="Select currency">
+                      <button class="currency-option is-active" type="button" data-currency="NGN">NGN</button>
+                      <button class="currency-option" type="button" data-currency="USD">USD</button>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Financial Year Start</span>
+                    <input id="financial-year-start" name="financialYearStart" type="date" />
+                  </label>
+                </div>
+
+                <div class="dialog-actions company-setup-actions">
+                  <button class="secondary-button" id="company-setup-reset" type="button">Reset</button>
+                  <button class="primary-button" type="submit">Save Company Setup</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="panel onboarding-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>AI Setup Guide</h3>
+                  <p id="onboarding-subtitle">
+                    Follow the step-by-step onboarding flow to finish your setup quickly.
+                  </p>
+                </div>
+                <span class="status-badge balanced" id="onboarding-progress-badge">Step 1 of 5</span>
+              </div>
+
+              <div class="assistant-chat onboarding-chat" id="company-setup-guide"></div>
+
+              <div class="onboarding-step-list" id="onboarding-step-list"></div>
+
+              <div class="onboarding-actions">
+                <button class="secondary-button" id="onboarding-prev-button" type="button">Previous</button>
+                <button class="primary-button" id="onboarding-next-button" type="button">Next Step</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
         <section class="view-panel is-active" data-view="chart">
           <header class="hero panel">
             <div>
@@ -513,7 +627,7 @@
                 <div>
                   <h3>Financial Assistant</h3>
                   <p>
-                    The assistant uses Anthropic Claude with the current chart of accounts, journals, balances, and statements as context.
+                    The assistant uses the current chart of accounts, company setup, journals, balances, and statements as context.
                   </p>
                 </div>
               </div>

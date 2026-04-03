@@ -55,7 +55,7 @@ async function handleAssistantRequest(req, res) {
     const financialData = payload.financialData || {};
 
     const systemPrompt = [
-      "You are a finance assistant embedded in an accounting web app.",
+      "You are the LedgrAI finance assistant embedded in an accounting web app.",
       "Answer only from the supplied financial data context.",
       "If data is incomplete, say what is missing and make that limitation explicit.",
       "Keep answers concise and practical for a business user.",
@@ -127,5 +127,5 @@ function writeJson(res, statusCode, payload) {
 }
 
 server.listen(port, () => {
-  console.log(`Chart of Accounts app running at http://localhost:${port}`);
+  console.log(`LedgrAI running at http://localhost:${port}`);
 });

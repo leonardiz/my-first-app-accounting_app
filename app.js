@@ -1,9 +1,12 @@
 const accountStorageKey = "chart-of-accounts-records";
 const journalStorageKey = "chart-of-accounts-journal-entries";
+const companySetupStorageKey = "ledgrai-company-setup";
 const openingBalanceEquityCode = "3000";
 const openingBalanceEquityName = "Opening Balance Equity";
 const openingBalanceEquityType = "Equity";
 const systemOpeningBalanceEntryKey = "system-opening-balance-equity";
+const appDisplayName = "LedgrAI";
+const defaultBrandEyebrow = "AI Accounting";
 
 const defaultAccounts = [
   {
@@ -29,20 +32,24 @@ const defaultAccounts = [
   },
 ];
 
-const currencyFormatter = new Intl.NumberFormat("en-US", {
+let currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
-  currency: "USD",
+  currency: "NGN",
 });
 
 const state = {
   accounts: [],
   journalEntries: [],
+  companySetup: null,
   editingAccountId: null,
   editingJournalId: null,
-  currentView: "chart",
-  sidebarOpen: false,
+  editingJournalDescriptionId: null,
+  currentView: "company-setup",
+  sidebarCollapsed: false,
+  mobileSidebarOpen: false,
   assistantMessages: [],
   assistantPending: false,
+  onboardingStepIndex: 0,
   balanceSheetSections: {
     currentAssets: true,
     nonCurrentAssets: true,
@@ -56,8 +63,28 @@ const elements = {
   appShell: document.querySelector(".app-shell"),
   sidebar: document.querySelector("#sidebar"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
+  brandNames: [...document.querySelectorAll("[data-brand-name]")],
+  brandEyebrows: [...document.querySelectorAll("[data-brand-eyebrow]")],
+  pageTitle: document.querySelector("[data-page-title]"),
   navItems: [...document.querySelectorAll("[data-view-target]")],
   viewPanels: [...document.querySelectorAll("[data-view]")],
+  companySetupForm: document.querySelector("#company-setup-form"),
+  companyName: document.querySelector("#company-name"),
+  companyIndustry: document.querySelector("#company-industry"),
+  companyBusinessType: document.querySelector("#company-business-type"),
+  companyAddress: document.querySelector("#company-address"),
+  companyPhone: document.querySelector("#company-phone"),
+  companyEmail: document.querySelector("#company-email"),
+  currencyToggle: document.querySelector("#currency-toggle"),
+  currencyOptions: [...document.querySelectorAll("[data-currency]")],
+  financialYearStart: document.querySelector("#financial-year-start"),
+  companySetupReset: document.querySelector("#company-setup-reset"),
+  companySetupGuide: document.querySelector("#company-setup-guide"),
+  onboardingSubtitle: document.querySelector("#onboarding-subtitle"),
+  onboardingProgressBadge: document.querySelector("#onboarding-progress-badge"),
+  onboardingStepList: document.querySelector("#onboarding-step-list"),
+  onboardingPrevButton: document.querySelector("#onboarding-prev-button"),
+  onboardingNextButton: document.querySelector("#onboarding-next-button"),
   totalAccounts: document.querySelector("#total-accounts"),
   totalBalance: document.querySelector("#total-balance"),
   totalJournalEntries: document.querySelector("#total-journal-entries"),
@@ -165,6 +192,27 @@ elements.lineItemsList.addEventListener("input", handleLineItemChange);
 elements.lineItemsList.addEventListener("change", handleLineItemChange);
 elements.lineItemsList.addEventListener("click", handleLineItemClick);
 elements.printTrialBalanceButton.addEventListener("click", () => window.print());
+elements.companySetupForm.addEventListener("submit", handleCompanySetupSubmit);
+elements.companySetupReset.addEventListener("click", resetCompanySetup);
+elements.currencyToggle.addEventListener("click", handleCurrencyToggle);
+elements.onboardingPrevButton.addEventListener("click", goToPreviousOnboardingStep);
+elements.onboardingNextButton.addEventListener("click", goToNextOnboardingStep);
+elements.journalTableBody.addEventListener("click", handleJournalTableAction);
+elements.journalTableBody.addEventListener("keydown", handleJournalDescriptionKeydown);
+[
+  elements.companyName,
+  elements.companyIndustry,
+  elements.companyBusinessType,
+  elements.companyAddress,
+  elements.companyPhone,
+  elements.companyEmail,
+  elements.financialYearStart,
+].forEach((input, index) => {
+  input.addEventListener("focus", () => {
+    state.onboardingStepIndex = Math.min(index, getOnboardingSteps().length - 1);
+    renderCompanySetup();
+  });
+});
 elements.navItems.forEach((item) =>
   item.addEventListener("click", () => setActiveView(item.dataset.viewTarget)),
 );
@@ -173,17 +221,25 @@ elements.balanceSheetLiabilitiesList.addEventListener("click", handleBalanceShee
 elements.balanceSheetEquityList.addEventListener("click", handleBalanceSheetToggle);
 elements.assistantForm.addEventListener("submit", handleAssistantSubmit);
 elements.assistantClearButton.addEventListener("click", clearAssistantChat);
+window.addEventListener("resize", handleWindowResize);
 
 initializeState();
 render();
 
 function initializeState() {
+  state.companySetup = loadCompanySetup();
   state.accounts = loadAccounts();
   state.accounts = syncOpeningBalanceEquityAccount(state.accounts);
   state.journalEntries = syncSystemJournalEntry(loadJournalEntries());
   state.assistantMessages = [];
+  state.currentView = isCompanySetupComplete() ? "chart" : "company-setup";
+  state.mobileSidebarOpen = false;
+  state.sidebarCollapsed = false;
+  updateCurrencyFormatter();
+  syncAssistantOnboardingMessage();
   saveAccounts();
   saveJournalEntries();
+  saveCompanySetup();
 }
 
 function loadAccounts() {
@@ -220,6 +276,27 @@ function loadJournalEntries() {
   }
 }
 
+function loadCompanySetup() {
+  const fallback = getDefaultCompanySetup();
+  const storedSetup = localStorage.getItem(companySetupStorageKey);
+
+  if (!storedSetup) {
+    return fallback;
+  }
+
+  try {
+    const parsedSetup = JSON.parse(storedSetup);
+    if (parsedSetup && typeof parsedSetup === "object") {
+      return {
+        ...fallback,
+        ...parsedSetup,
+      };
+    }
+  } catch {}
+
+  return fallback;
+}
+
 function saveAccounts() {
   localStorage.setItem(accountStorageKey, JSON.stringify(state.accounts));
 }
@@ -228,8 +305,14 @@ function saveJournalEntries() {
   localStorage.setItem(journalStorageKey, JSON.stringify(state.journalEntries));
 }
 
+function saveCompanySetup() {
+  localStorage.setItem(companySetupStorageKey, JSON.stringify(state.companySetup));
+}
+
 function render() {
   renderNavigation();
+  renderBranding();
+  renderCompanySetup();
   renderAccountsTable();
   renderJournalTable();
   renderGeneralLedger();
@@ -243,6 +326,10 @@ function render() {
 
 function renderNavigation() {
   syncSidebarState();
+  const viewTitle = getViewTitle(state.currentView);
+  if (elements.pageTitle) {
+    elements.pageTitle.textContent = `${appDisplayName} ${viewTitle}`;
+  }
   elements.navItems.forEach((item) => {
     item.classList.toggle("is-active", item.dataset.viewTarget === state.currentView);
   });
@@ -254,21 +341,250 @@ function renderNavigation() {
 
 function setActiveView(viewName) {
   state.currentView = viewName;
-  if (window.innerWidth <= 800) {
-    state.sidebarOpen = false;
+  if (isMobileViewport()) {
+    state.mobileSidebarOpen = false;
   }
-  renderNavigation();
+  render();
 }
 
 function toggleSidebar() {
-  state.sidebarOpen = !state.sidebarOpen;
+  if (isMobileViewport()) {
+    state.mobileSidebarOpen = !state.mobileSidebarOpen;
+  } else {
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+  }
   syncSidebarState();
 }
 
 function syncSidebarState() {
-  elements.appShell.classList.toggle("sidebar-collapsed", !state.sidebarOpen);
-  elements.sidebar.classList.toggle("is-open", state.sidebarOpen);
-  elements.sidebarToggle.setAttribute("aria-expanded", String(state.sidebarOpen));
+  const collapsed = !isMobileViewport() && state.sidebarCollapsed;
+  const open = !isMobileViewport() || state.mobileSidebarOpen;
+  elements.appShell.classList.toggle("sidebar-collapsed", collapsed);
+  elements.sidebar.classList.toggle("is-open", open);
+  elements.sidebarToggle.setAttribute("aria-expanded", String(open && !collapsed));
+}
+
+function renderBranding() {
+  const companyName = state.companySetup.companyName.trim();
+  const eyebrow = companyName ? `${companyName} Workspace` : defaultBrandEyebrow;
+
+  document.title = appDisplayName;
+  elements.brandNames.forEach((element) => {
+    element.textContent = appDisplayName;
+  });
+  elements.brandEyebrows.forEach((element) => {
+    element.textContent = eyebrow;
+  });
+}
+
+function renderCompanySetup() {
+  const onboardingSteps = getOnboardingSteps();
+  const currentStep = onboardingSteps[state.onboardingStepIndex] || onboardingSteps[0];
+
+  elements.companyName.value = state.companySetup.companyName;
+  elements.companyIndustry.value = state.companySetup.industry;
+  elements.companyBusinessType.value = state.companySetup.businessType;
+  elements.companyAddress.value = state.companySetup.address;
+  elements.companyPhone.value = state.companySetup.phone;
+  elements.companyEmail.value = state.companySetup.email;
+  elements.financialYearStart.value = state.companySetup.financialYearStart;
+
+  elements.currencyOptions.forEach((option) => {
+    option.classList.toggle("is-active", option.dataset.currency === state.companySetup.currency);
+  });
+
+  elements.onboardingProgressBadge.textContent = `Step ${state.onboardingStepIndex + 1} of ${onboardingSteps.length}`;
+  elements.onboardingSubtitle.textContent = currentStep
+    ? currentStep.helper
+    : "Complete your company setup details.";
+  elements.companySetupGuide.innerHTML = "";
+  elements.onboardingStepList.innerHTML = "";
+
+  const introMessage = document.createElement("div");
+  introMessage.className = "chat-message assistant";
+  introMessage.textContent = currentStep
+    ? currentStep.message
+    : "Set up your company profile to personalize LedgrAI.";
+  elements.companySetupGuide.appendChild(introMessage);
+
+  const detailMessage = document.createElement("div");
+  detailMessage.className = "chat-message system";
+  detailMessage.textContent = isCompanySetupComplete()
+    ? "Setup complete. You can revisit any field here and the rest of the app will stay in sync."
+    : "Start with your company profile. LedgrAI uses these details for onboarding and reporting context.";
+  elements.companySetupGuide.appendChild(detailMessage);
+
+  onboardingSteps.forEach((step, index) => {
+    const item = document.createElement("div");
+    const isComplete = step.isComplete;
+    item.className = `onboarding-step${index === state.onboardingStepIndex ? " is-active" : ""}${isComplete ? " is-complete" : ""}`;
+    item.innerHTML = `
+      <span class="onboarding-step-number">${isComplete ? "✓" : index + 1}</span>
+      <div class="onboarding-step-copy">
+        <strong>${escapeHtml(step.title)}</strong>
+        <span>${escapeHtml(step.helper)}</span>
+      </div>
+    `;
+    elements.onboardingStepList.appendChild(item);
+  });
+
+  elements.onboardingPrevButton.disabled = state.onboardingStepIndex === 0;
+  elements.onboardingNextButton.textContent =
+    state.onboardingStepIndex === onboardingSteps.length - 1 ? "Finish Setup" : "Next Step";
+}
+
+function handleCompanySetupSubmit(event) {
+  event.preventDefault();
+  state.companySetup = {
+    ...state.companySetup,
+    companyName: elements.companyName.value.trim(),
+    industry: elements.companyIndustry.value.trim(),
+    businessType: elements.companyBusinessType.value.trim(),
+    address: elements.companyAddress.value.trim(),
+    phone: elements.companyPhone.value.trim(),
+    email: elements.companyEmail.value.trim(),
+    financialYearStart: elements.financialYearStart.value,
+  };
+  updateCurrencyFormatter();
+  saveCompanySetup();
+  syncAssistantOnboardingMessage();
+  render();
+}
+
+function resetCompanySetup() {
+  state.companySetup = getDefaultCompanySetup();
+  state.onboardingStepIndex = 0;
+  updateCurrencyFormatter();
+  saveCompanySetup();
+  render();
+}
+
+function handleCurrencyToggle(event) {
+  const button = event.target.closest("[data-currency]");
+  if (!button) {
+    return;
+  }
+
+  state.companySetup.currency = button.dataset.currency;
+  updateCurrencyFormatter();
+  saveCompanySetup();
+  render();
+}
+
+function goToPreviousOnboardingStep() {
+  state.onboardingStepIndex = Math.max(0, state.onboardingStepIndex - 1);
+  renderCompanySetup();
+}
+
+function goToNextOnboardingStep() {
+  const steps = getOnboardingSteps();
+  if (state.onboardingStepIndex < steps.length - 1) {
+    state.onboardingStepIndex += 1;
+  } else {
+    setActiveView("chart");
+  }
+  renderCompanySetup();
+}
+
+function getOnboardingSteps() {
+  return [
+    {
+      title: "Company identity",
+      helper: "Add the company name and industry to personalize the workspace.",
+      message:
+        "Step 1: Start with the company name and industry. This gives LedgrAI the base identity for your books.",
+      isComplete: Boolean(state.companySetup.companyName && state.companySetup.industry),
+    },
+    {
+      title: "Business profile",
+      helper: "Capture the business type and address so setup is operationally complete.",
+      message:
+        "Step 2: Tell me the legal or operating business type and main address for the company profile.",
+      isComplete: Boolean(state.companySetup.businessType && state.companySetup.address),
+    },
+    {
+      title: "Primary contacts",
+      helper: "Add phone and email so your finance workspace has current business contacts.",
+      message:
+        "Step 3: Add the best phone number and email address for finance communications and records.",
+      isComplete: Boolean(state.companySetup.phone && state.companySetup.email),
+    },
+    {
+      title: "Base currency",
+      helper: "Choose NGN or USD. All balances and reports will use this display currency.",
+      message:
+        "Step 4: Pick the base reporting currency. Use NGN for naira-led books or USD if the company reports in dollars.",
+      isComplete: Boolean(state.companySetup.currency),
+    },
+    {
+      title: "Financial calendar",
+      helper: "Set the first day of your financial year to complete onboarding.",
+      message:
+        "Step 5: Finish by choosing the first day of the financial year. After that you can move straight into accounts and journals.",
+      isComplete: Boolean(state.companySetup.financialYearStart),
+    },
+  ];
+}
+
+function getDefaultCompanySetup() {
+  return {
+    companyName: "",
+    industry: "",
+    businessType: "",
+    address: "",
+    phone: "",
+    email: "",
+    currency: "NGN",
+    financialYearStart: "",
+  };
+}
+
+function updateCurrencyFormatter() {
+  currencyFormatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: state.companySetup?.currency || "NGN",
+  });
+}
+
+function isCompanySetupComplete() {
+  return getOnboardingSteps().every((step) => step.isComplete);
+}
+
+function getViewTitle(viewName) {
+  const titles = {
+    "company-setup": "Company Setup",
+    chart: "Workspace",
+    journal: "Journal Entries",
+    ledger: "General Ledger",
+    "trial-balance": "Trial Balance",
+    "income-statement": "Income Statement",
+    "balance-sheet": "Balance Sheet",
+    "cash-flow": "Cash Flow",
+    "ai-assistant": "AI Assistant",
+  };
+
+  return titles[viewName] || "Workspace";
+}
+
+function isMobileViewport() {
+  return window.innerWidth <= 900;
+}
+
+function handleWindowResize() {
+  if (!isMobileViewport()) {
+    state.mobileSidebarOpen = false;
+  }
+  syncSidebarState();
+}
+
+function syncAssistantOnboardingMessage() {
+  if (!state.assistantMessages.length && !isCompanySetupComplete()) {
+    state.assistantMessages.push({
+      role: "assistant",
+      content:
+        "Start in Company Setup. Add your business profile, currency, and financial year so I can answer with better context.",
+    });
+  }
 }
 
 function renderAccountsTable() {
@@ -327,11 +643,36 @@ function renderJournalTable() {
 
   sortedEntries.forEach((entry) => {
     const totals = calculateLineTotals(entry.lineItems);
+    const descriptionMarkup =
+      state.editingJournalDescriptionId === entry.id
+        ? `
+          <div class="journal-description-edit">
+            <input
+              class="journal-description-input"
+              type="text"
+              value="${escapeHtml(entry.description)}"
+              data-journal-description-input="${entry.id}"
+              aria-label="Edit journal entry description"
+            />
+            <button class="inline-edit-button" type="button" data-action="save-journal-description" data-id="${entry.id}">Save</button>
+            <button class="inline-edit-button" type="button" data-action="cancel-journal-description" data-id="${entry.id}">Cancel</button>
+          </div>
+        `
+        : `
+          <div class="journal-entry-heading">
+            <strong>${escapeHtml(entry.description)}</strong>
+            ${
+              entry.systemGenerated
+                ? ""
+                : `<button class="inline-edit-button" type="button" data-action="start-edit-journal-description" data-id="${entry.id}" aria-label="Edit journal entry description">Edit</button>`
+            }
+          </div>
+        `;
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>${escapeHtml(formatDate(entry.date))}</td>
       <td>
-        <strong>${escapeHtml(entry.description)}</strong>
+        ${descriptionMarkup}
         <ul class="journal-lines">
           ${entry.lineItems
             .map((line) => {
@@ -367,10 +708,6 @@ function renderJournalTable() {
       </td>
     `;
     elements.journalTableBody.appendChild(row);
-  });
-
-  elements.journalTableBody.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", handleJournalTableAction);
   });
 }
 
@@ -745,7 +1082,9 @@ function renderAssistant() {
   const introMessage = document.createElement("div");
   introMessage.className = "chat-message system";
   introMessage.textContent =
-    "Ask about profitability, cash, balances, trends, or specific accounts. The assistant uses the current live data in this app.";
+    isCompanySetupComplete()
+      ? `Ask about profitability, cash, balances, trends, or specific accounts. ${appDisplayName} uses the live accounting and company setup data in this workspace.`
+      : `Complete Company Setup first for better answers. ${appDisplayName} uses your business profile, books, and reports together when responding.`;
   elements.assistantChat.appendChild(introMessage);
 
   state.assistantMessages.forEach((message) => {
@@ -826,6 +1165,7 @@ function clearAssistantChat() {
   }
 
   state.assistantMessages = [];
+  syncAssistantOnboardingMessage();
   elements.assistantStatus.textContent = "Chat cleared.";
   elements.assistantStatus.classList.remove("is-unbalanced");
   elements.assistantStatus.classList.remove("is-balanced");
@@ -890,11 +1230,52 @@ function handleAccountTableAction(event) {
 }
 
 function handleJournalTableAction(event) {
-  const { action, id } = event.currentTarget.dataset;
+  const button = event.target.closest("[data-action]");
+  if (!button) {
+    return;
+  }
+
+  const { action, id } = button.dataset;
   const entry = state.journalEntries.find((item) => item.id === id);
 
-  if (entry?.systemGenerated) {
+  if (entry?.systemGenerated && action !== "cancel-journal-description") {
     window.alert("This opening balance entry is system-generated and cannot be edited or deleted.");
+    return;
+  }
+
+  if (action === "start-edit-journal-description") {
+    state.editingJournalDescriptionId = id;
+    renderJournalTable();
+    elements.journalTableBody
+      .querySelector(`[data-journal-description-input="${id}"]`)
+      ?.focus();
+    return;
+  }
+
+  if (action === "cancel-journal-description") {
+    state.editingJournalDescriptionId = null;
+    renderJournalTable();
+    return;
+  }
+
+  if (action === "save-journal-description") {
+    if (!entry) {
+      return;
+    }
+
+    const input = elements.journalTableBody.querySelector(`[data-journal-description-input="${id}"]`);
+    const nextDescription = input?.value.trim() || "";
+    if (!nextDescription) {
+      window.alert("Journal entry description cannot be empty.");
+      return;
+    }
+
+    state.journalEntries = state.journalEntries.map((item) =>
+      item.id === id ? { ...item, description: nextDescription } : item,
+    );
+    state.editingJournalDescriptionId = null;
+    saveJournalEntries();
+    render();
     return;
   }
 
@@ -919,6 +1300,28 @@ function handleJournalTableAction(event) {
     state.journalEntries = syncSystemJournalEntry(state.journalEntries);
     saveJournalEntries();
     render();
+  }
+}
+
+function handleJournalDescriptionKeydown(event) {
+  const input = event.target.closest("[data-journal-description-input]");
+  if (!input) {
+    return;
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    handleJournalTableAction({
+      target: elements.journalTableBody.querySelector(
+        `[data-action="save-journal-description"][data-id="${input.dataset.journalDescriptionInput}"]`,
+      ),
+    });
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    state.editingJournalDescriptionId = null;
+    renderJournalTable();
   }
 }
 
@@ -1792,6 +2195,18 @@ function buildAssistantFinancialContext() {
 
   return {
     generatedAt: new Date().toISOString(),
+    appName: appDisplayName,
+    companySetup: {
+      companyName: state.companySetup.companyName,
+      industry: state.companySetup.industry,
+      businessType: state.companySetup.businessType,
+      address: state.companySetup.address,
+      phone: state.companySetup.phone,
+      email: state.companySetup.email,
+      currency: state.companySetup.currency,
+      financialYearStart: state.companySetup.financialYearStart,
+      setupComplete: isCompanySetupComplete(),
+    },
     accounts: state.accounts.map((account) => {
       const postingTotals = getPostingTotalsForAccount(account.id);
       const closingBalance = calculateClosingBalance(
