@@ -4,8 +4,8 @@ const path = require("path");
 
 const port = process.env.PORT || 3000;
 const root = __dirname;
-const geminiApiKey = process.env.GEMINI_API_KEY || "";
-const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const groqApiKey = process.env.GROQ_API_KEY || "";
+const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -41,9 +41,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function handleAssistantRequest(req, res) {
-  if (!geminiApiKey) {
+  if (!groqApiKey) {
     writeJson(res, 500, {
-      error: "GEMINI_API_KEY is not configured on the server.",
+      error: "GROQ_API_KEY is not configured on the server.",
     });
     return;
   }
@@ -65,47 +65,41 @@ async function handleAssistantRequest(req, res) {
       JSON.stringify(financialData, null, 2),
     ].join("\n");
 
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
-      {
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${groqApiKey}`,
       },
       body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemPrompt }],
-        },
-        contents: conversation.map((message) => ({
-          role: message.role === "assistant" ? "model" : "user",
-          parts: [{ text: message.content || "" }],
-        })),
-        generationConfig: {
-          maxOutputTokens: 900,
-          temperature: 0.4,
-        },
+        model: groqModel,
+        temperature: 0.4,
+        max_tokens: 900,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          ...conversation.map((message) => ({
+            role: message.role === "assistant" ? "assistant" : "user",
+            content: message.content || "",
+          })),
+        ],
       }),
-      },
-    );
+    });
 
-    const data = await geminiResponse.json();
-    if (!geminiResponse.ok) {
-      writeJson(res, geminiResponse.status, {
-        error: data?.error?.message || "Gemini request failed.",
+    const data = await groqResponse.json();
+    if (!groqResponse.ok) {
+      writeJson(res, groqResponse.status, {
+        error: data?.error?.message || "Groq request failed.",
       });
       return;
     }
 
-    const text = Array.isArray(data.candidates)
-      ? data.candidates
-          .flatMap((candidate) => candidate?.content?.parts || [])
-          .filter((part) => typeof part?.text === "string")
-          .map((part) => part.text)
-          .join("\n\n")
-      : "";
+    const text = data?.choices?.[0]?.message?.content || "";
 
     writeJson(res, 200, {
-      message: text || "No response returned from Gemini.",
+      message: text || "No response returned from Groq.",
     });
   } catch (error) {
     writeJson(res, 500, {
