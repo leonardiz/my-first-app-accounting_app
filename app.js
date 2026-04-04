@@ -193,7 +193,6 @@ const state = {
   assistantPending: false,
   authView: "login",
   setupBannerDismissed: false,
-  activeSearchSelect: null,
   onboardingStepIndex: 0,
   locationOptions: {
     countries: [],
@@ -247,15 +246,10 @@ const elements = {
   companyAddress: document.querySelector("#company-address"),
   companyPhone: document.querySelector("#company-phone"),
   companyEmail: document.querySelector("#company-email"),
-  currencySelector: document.querySelector("#currency-selector"),
-  currencyOptionsList: document.querySelector("#currency-options"),
-  currencySelectionHint: document.querySelector("#currency-selection-hint"),
+  currencySelect: document.querySelector("#currency-select"),
   companyCountry: document.querySelector("#company-country"),
-  countryOptionsList: document.querySelector("#country-options"),
   companyState: document.querySelector("#company-state"),
-  stateOptionsList: document.querySelector("#state-options"),
   companyCity: document.querySelector("#company-city"),
-  cityOptionsList: document.querySelector("#city-options"),
   searchSelects: [...document.querySelectorAll("[data-search-select]")],
   financialYearStart: document.querySelector("#financial-year-start"),
   companySetupReset: document.querySelector("#company-setup-reset"),
@@ -397,8 +391,7 @@ elements.printCashFlowButton.addEventListener("click", () =>
 );
 elements.companySetupForm.addEventListener("submit", handleCompanySetupSubmit);
 elements.companySetupReset.addEventListener("click", resetCompanySetup);
-elements.currencySelector.addEventListener("change", handleCurrencySelectionInput);
-elements.currencySelector.addEventListener("input", handleCurrencySelectionInput);
+elements.currencySelect.addEventListener("change", handleCurrencySelectionInput);
 elements.companyCountry.addEventListener("change", handleCountrySelectionInput);
 elements.companyCountry.addEventListener("input", handleCountrySelectionInput);
 elements.companyCountry.addEventListener("focus", () => openSearchSelect("country"));
@@ -430,7 +423,7 @@ elements.journalTableBody.addEventListener("keydown", handleJournalDescriptionKe
   elements.companyAddress,
   elements.companyPhone,
   elements.companyEmail,
-  elements.currencySelector,
+  elements.currencySelect,
   elements.companyCountry,
   elements.companyState,
   elements.companyCity,
@@ -1055,7 +1048,7 @@ function renderCompanySetup() {
   elements.companyCountry.value = state.companySetup.country;
   elements.companyState.value = state.companySetup.stateProvince;
   elements.companyCity.value = state.companySetup.city;
-  elements.currencySelector.value = formatCurrencyOptionLabel(selectedCurrency);
+  elements.currencySelect.value = selectedCurrency?.code || "";
   elements.currencySelectionHint.textContent = selectedCurrency
     ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
     : "Search by code, currency name, or symbol.";
@@ -1107,7 +1100,7 @@ async function handleCompanySetupSubmit(event) {
   const selectedCurrency = resolveCurrencySelection(elements.currencySelector.value);
   if (!selectedCurrency) {
     window.alert("Select a valid currency from the global currency list.");
-    elements.currencySelector.focus();
+    elements.currencySelect.focus();
     return;
   }
 
@@ -1178,7 +1171,7 @@ async function handleCountrySelectionInput() {
     const suggestedCurrency = getCurrencyMeta(suggestedCurrencyCode);
     if (suggestedCurrency) {
       state.companySetup.currency = suggestedCurrency.code;
-      elements.currencySelector.value = formatCurrencyOptionLabel(suggestedCurrency);
+    elements.currencySelect.value = suggestedCurrency.code;
       handleCurrencySelectionInput();
     }
   }

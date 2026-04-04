@@ -1149,6 +1149,13 @@ textarea {
   color: var(--text);
 }
 
+.app-select {
+  appearance: none;
+  background: #f8fafc url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23667085" d="M7 10l5 5 5-5z"/></svg>') no-repeat calc(100% - 14px) center;
+  background-size: 14px 14px;
+  cursor: pointer;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
