@@ -247,10 +247,10 @@ const elements = {
   companyPhone: document.querySelector("#company-phone"),
   companyEmail: document.querySelector("#company-email"),
   currencySelect: document.querySelector("#currency-select"),
+  currencySelectionHint: document.querySelector("#currency-selection-hint"),
   companyCountry: document.querySelector("#company-country"),
   companyState: document.querySelector("#company-state"),
   companyCity: document.querySelector("#company-city"),
-  searchSelects: [...document.querySelectorAll("[data-search-select]")],
   financialYearStart: document.querySelector("#financial-year-start"),
   companySetupReset: document.querySelector("#company-setup-reset"),
   companySetupGuide: document.querySelector("#company-setup-guide"),
@@ -393,19 +393,8 @@ elements.companySetupForm.addEventListener("submit", handleCompanySetupSubmit);
 elements.companySetupReset.addEventListener("click", resetCompanySetup);
 elements.currencySelect.addEventListener("change", handleCurrencySelectionInput);
 elements.companyCountry.addEventListener("change", handleCountrySelectionInput);
-elements.companyCountry.addEventListener("input", handleCountrySelectionInput);
-elements.companyCountry.addEventListener("focus", () => openSearchSelect("country"));
 elements.companyState.addEventListener("change", handleStateSelectionInput);
-elements.companyState.addEventListener("input", handleStateSelectionInput);
-elements.companyState.addEventListener("focus", () => openSearchSelect("state"));
-elements.companyCity.addEventListener("input", handleCitySelectionInput);
-elements.companyCity.addEventListener("focus", () => openSearchSelect("city"));
 elements.companyCity.addEventListener("change", handleCitySelectionInput);
-elements.searchSelects.forEach((container) => {
-  container.addEventListener("click", () => {
-    openSearchSelect(container.dataset.searchSelect);
-  });
-});
 elements.setupBanners.forEach((banner) => {
   banner.querySelector("[data-dismiss-setup-banner]")?.addEventListener("click", () => {
     state.setupBannerDismissed = true;
@@ -443,14 +432,15 @@ elements.balanceSheetEquityList.addEventListener("click", handleBalanceSheetTogg
 elements.assistantForm.addEventListener("submit", handleAssistantSubmit);
 elements.assistantClearButton.addEventListener("click", clearAssistantChat);
 window.addEventListener("resize", handleWindowResize);
-document.addEventListener("click", handleDocumentClick);
 
-bootApplication();
+document.addEventListener("DOMContentLoaded", async () => {
+  renderCurrencyOptions();
+  await loadCountries();
+  bootApplication();
+});
 
 async function bootApplication() {
   try {
-    renderCurrencyOptions();
-    await loadCountries();
     const session = await fetchCurrentSession();
     if (!session) {
       state.currentUser = null;
@@ -591,19 +581,21 @@ async function loadStatesForCountry(countryName) {
     const statesByCountry = new Map();
     if (Array.isArray(payload?.data)) {
       payload.data.forEach((entry) => {
-        const name = String(entry.name || entry.country || "").trim();
-        const states = Array.isArray(entry.states)
-          ? entry.states
-              .map((stateEntry) => String(stateEntry.name || stateEntry.state || "").trim())
-              .filter(Boolean)
-          : [];
-        if (name) {
-          statesByCountry.set(name, states);
-        }
+      const name = String(entry.name || entry.country || "").trim();
+      const normalizedCountry = normalizeString(name);
+      const states = Array.isArray(entry.states)
+        ? entry.states
+            .map((stateEntry) => String(stateEntry.name || stateEntry.state || "").trim())
+            .filter(Boolean)
+        : [];
+      if (name) {
+        statesByCountry.set(normalizedCountry, states);
+      }
       });
     }
 
     state.locationOptions.statesByCountry = statesByCountry;
+    renderLocationOptions();
     return statesByCountry.get(normalizedCountry) || [];
   } catch {
     return [];
@@ -638,6 +630,7 @@ async function loadCitiesForState(countryName, stateName) {
     const payload = await response.json();
     const cities = Array.isArray(payload?.data) ? payload.data.map((city) => String(city).trim()).filter(Boolean) : [];
     state.locationOptions.citiesByState.set(cacheKey, cities);
+    renderLocationOptions();
     return cities;
   } catch {
     try {
@@ -650,6 +643,7 @@ async function loadCitiesForState(countryName, stateName) {
         ? payload.data.map((city) => String(city).trim()).filter(Boolean)
         : [];
       state.locationOptions.citiesByState.set(cacheKey, cities);
+      renderLocationOptions();
       return cities;
     } catch {
       return [];
@@ -668,109 +662,21 @@ async function ensureLocationSelectionsLoaded() {
 }
 
 function renderLocationOptions() {
-  const states = state.locationOptions.statesByCountry.get(state.companySetup.country) || [];
-  const cities =
-    state.locationOptions.citiesByState.get(
-      `${state.companySetup.country}::${state.companySetup.stateProvince}`,
-    ) || [];
-  renderSearchSelectMenu("country", state.locationOptions.countries, elements.companyCountry.value.trim());
-  renderSearchSelectMenu("state", states, elements.companyState.value.trim());
-  renderSearchSelectMenu("city", cities, elements.companyCity.value.trim());
+  updateSelectOptions(elements.companyCountry, state.locationOptions.countries, "Select a country");
+
+  const countryKey = normalizeString(state.companySetup.country);
+  const states = state.locationOptions.statesByCountry.get(countryKey) || [];
+  updateSelectOptions(elements.companyState, states, "Select a state / province");
+
+  const cityCacheKey = `${countryKey}::${normalizeString(state.companySetup.stateProvince)}`;
+  const cities = state.locationOptions.citiesByState.get(cityCacheKey) || [];
+  updateSelectOptions(elements.companyCity, cities, "Select a city");
 }
 
 function getSuggestedCurrencyForCountry(countryName) {
-  const key = String(countryName || "").trim().toLowerCase();
+  const key = normalizeString(countryName);
   return countryCurrencySuggestions[key] || "";
 }
-
-function renderSearchSelectMenu(type, options, query = "") {
-  const menu = getSearchSelectMenu(type);
-  if (!menu) {
-    return;
-  }
-
-  const normalizedQuery = String(query || "").trim().toLowerCase();
-  const filteredOptions = options.filter((option) =>
-    String(option || "")
-      .toLowerCase()
-      .includes(normalizedQuery),
-  );
-
-  if (!filteredOptions.length) {
-    menu.innerHTML = '<div class="search-select-empty">No matches found.</div>';
-    return;
-  }
-
-  menu.innerHTML = filteredOptions
-    .map(
-      (option) =>
-        `<button class="search-select-option" type="button" data-search-select-option="${type}" data-value="${escapeHtml(option)}">${escapeHtml(option)}</button>`,
-    )
-    .join("");
-
-  menu.querySelectorAll("[data-search-select-option]").forEach((button) => {
-    button.addEventListener("click", () => selectSearchOption(type, button.dataset.value || ""));
-  });
-}
-
-function getSearchSelectMenu(type) {
-  if (type === "country") {
-    return elements.countryOptionsList;
-  }
-
-  if (type === "state") {
-    return elements.stateOptionsList;
-  }
-
-  if (type === "city") {
-    return elements.cityOptionsList;
-  }
-
-  return null;
-}
-
-function openSearchSelect(type) {
-  state.activeSearchSelect = type;
-  elements.searchSelects.forEach((container) => {
-    const menu = container.querySelector(".search-select-menu");
-    const active = container.dataset.searchSelect === type;
-    menu?.classList.toggle("hidden", !active);
-  });
-  renderLocationOptions();
-}
-
-function closeSearchSelects() {
-  state.activeSearchSelect = null;
-  elements.searchSelects.forEach((container) => {
-    container.querySelector(".search-select-menu")?.classList.add("hidden");
-  });
-}
-
-function selectSearchOption(type, value) {
-  if (type === "country") {
-    elements.companyCountry.value = value;
-    handleCountrySelectionInput();
-  }
-
-  if (type === "state") {
-    elements.companyState.value = value;
-    handleStateSelectionInput();
-  }
-
-  if (type === "city") {
-    elements.companyCity.value = value;
-    handleCitySelectionInput();
-  }
-
-  closeSearchSelects();
-}
-
-function handleDocumentClick(event) {
-  if (!event.target.closest("[data-search-select]")) {
-    closeSearchSelects();
-  }
-}
-
 function setAuthView(viewName) {
   state.authView = viewName;
   hideAuthError();
@@ -960,7 +866,7 @@ function renderDashboard() {
   elements.dashboardNetIncome.classList.toggle("negative", monthlyNetIncome < 0);
   elements.dashboardTotalExpenses.textContent = currencyFormatter.format(incomeStatement.operatingExpenses);
   elements.dashboardAccountsPayable.textContent = currencyFormatter.format(accountsPayable);
-  elements.dashboardTransactions.innerHTML = "";
+  safeSetInnerHTML(elements.dashboardTransactions, "");
 
   if (!recentTransactions.length) {
     elements.dashboardEmptyState.classList.remove("hidden");
@@ -973,7 +879,9 @@ function renderDashboard() {
     const amount = totals.debits;
     const item = document.createElement("article");
     item.className = "dashboard-transaction";
-    item.innerHTML = `
+    safeSetInnerHTML(
+      item,
+      `
       <div class="dashboard-transaction-meta">
         <strong>${escapeHtml(entry.description)}</strong>
         <span class="dashboard-transaction-date">${escapeHtml(formatDate(entry.date))}</span>
@@ -981,7 +889,8 @@ function renderDashboard() {
       <strong class="dashboard-transaction-amount ${amount >= 0 ? "positive" : "negative"}">
         ${escapeHtml(currencyFormatter.format(amount))}
       </strong>
-    `;
+      `,
+    );
     elements.dashboardTransactions.appendChild(item);
   });
 }
@@ -1049,9 +958,11 @@ function renderCompanySetup() {
   elements.companyState.value = state.companySetup.stateProvince;
   elements.companyCity.value = state.companySetup.city;
   elements.currencySelect.value = selectedCurrency?.code || "";
-  elements.currencySelectionHint.textContent = selectedCurrency
-    ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
-    : "Search by code, currency name, or symbol.";
+  if (elements.currencySelectionHint) {
+    elements.currencySelectionHint.textContent = selectedCurrency
+      ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
+      : "Select a currency that matches your reporting preference.";
+  }
   elements.financialYearStart.value = state.companySetup.financialYearStart;
   renderLocationOptions();
 
@@ -1059,8 +970,8 @@ function renderCompanySetup() {
   elements.onboardingSubtitle.textContent = currentStep
     ? currentStep.helper
     : "Complete your company setup details.";
-  elements.companySetupGuide.innerHTML = "";
-  elements.onboardingStepList.innerHTML = "";
+  safeSetInnerHTML(elements.companySetupGuide, "");
+  safeSetInnerHTML(elements.onboardingStepList, "");
 
   const introMessage = document.createElement("div");
   introMessage.className = "chat-message assistant";
@@ -1080,13 +991,16 @@ function renderCompanySetup() {
     const item = document.createElement("div");
     const isComplete = step.isComplete;
     item.className = `onboarding-step${index === state.onboardingStepIndex ? " is-active" : ""}${isComplete ? " is-complete" : ""}`;
-    item.innerHTML = `
-      <span class="onboarding-step-number">${isComplete ? "✓" : index + 1}</span>
-      <div class="onboarding-step-copy">
-        <strong>${escapeHtml(step.title)}</strong>
-        <span>${escapeHtml(step.helper)}</span>
-      </div>
-    `;
+    safeSetInnerHTML(
+      item,
+      `
+        <span class="onboarding-step-number">${isComplete ? "✓" : index + 1}</span>
+        <div class="onboarding-step-copy">
+          <strong>${escapeHtml(step.title)}</strong>
+          <span>${escapeHtml(step.helper)}</span>
+        </div>
+      `,
+    );
     elements.onboardingStepList.appendChild(item);
   });
 
@@ -1097,7 +1011,7 @@ function renderCompanySetup() {
 
 async function handleCompanySetupSubmit(event) {
   event.preventDefault();
-  const selectedCurrency = resolveCurrencySelection(elements.currencySelector.value);
+  const selectedCurrency = resolveCurrencySelection(elements.currencySelect.value);
   if (!selectedCurrency) {
     window.alert("Select a valid currency from the global currency list.");
     elements.currencySelect.focus();
@@ -1150,10 +1064,13 @@ async function resetCompanySetup() {
 }
 
 function handleCurrencySelectionInput() {
-  const selectedCurrency = resolveCurrencySelection(elements.currencySelector.value);
-  elements.currencySelectionHint.textContent = selectedCurrency
+  const selectedCurrency = resolveCurrencySelection(elements.currencySelect.value);
+  const hintText = selectedCurrency
     ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
-    : "Search by code, currency name, or symbol.";
+    : "Select a currency that matches your reporting preference.";
+  if (elements.currencySelectionHint) {
+    elements.currencySelectionHint.textContent = hintText;
+  }
 }
 
 async function handleCountrySelectionInput() {
@@ -1171,7 +1088,7 @@ async function handleCountrySelectionInput() {
     const suggestedCurrency = getCurrencyMeta(suggestedCurrencyCode);
     if (suggestedCurrency) {
       state.companySetup.currency = suggestedCurrency.code;
-    elements.currencySelect.value = suggestedCurrency.code;
+      elements.currencySelect.value = suggestedCurrency.code;
       handleCurrencySelectionInput();
     }
   }
@@ -1268,12 +1185,11 @@ function getDefaultCompanySetup() {
 }
 
 function renderCurrencyOptions() {
-  elements.currencyOptionsList.innerHTML = currencyCatalog
-    .map(
-      (currency) =>
-        `<option value="${escapeHtml(formatCurrencyOptionLabel(currency))}"></option>`,
-    )
-    .join("");
+  updateSelectOptions(elements.currencySelect, currencyCatalog, "Select a currency", {
+    getValue: (currency) => normalizeCurrencyCode(currency.code),
+    getLabel: (currency) => formatCurrencyOptionLabel(currency),
+  });
+  handleCurrencySelectionInput();
 }
 
 function formatCurrencyOptionLabel(currency) {
@@ -1427,7 +1343,7 @@ function syncAssistantOnboardingMessage() {
 }
 
 function renderAccountsTable() {
-  elements.accountsTableBody.innerHTML = "";
+  safeSetInnerHTML(elements.accountsTableBody, "");
 
   if (state.accounts.length === 0) {
     elements.accountsEmptyState.classList.remove("hidden");
@@ -1446,7 +1362,9 @@ function renderAccountsTable() {
 
   sortedAccounts.forEach((account) => {
     const row = document.createElement("tr");
-    row.innerHTML = `
+    safeSetInnerHTML(
+      row,
+      `
       <td>${escapeHtml(account.code)}</td>
       <td>${escapeHtml(account.name)}</td>
       <td><span class="account-type-badge">${escapeHtml(account.type)}</span></td>
@@ -1467,7 +1385,7 @@ function renderAccountsTable() {
 }
 
 function renderJournalTable() {
-  elements.journalTableBody.innerHTML = "";
+  safeSetInnerHTML(elements.journalTableBody, "");
 
   if (state.journalEntries.length === 0) {
     elements.journalEmptyState.classList.remove("hidden");
@@ -1508,7 +1426,9 @@ function renderJournalTable() {
           </div>
         `;
     const row = document.createElement("tr");
-    row.innerHTML = `
+    safeSetInnerHTML(
+      row,
+      `
       <td>${escapeHtml(formatDate(entry.date))}</td>
       <td>
         ${descriptionMarkup}
@@ -1567,7 +1487,7 @@ function renderSummary() {
 }
 
 function renderGeneralLedger() {
-  elements.ledgerList.innerHTML = "";
+  safeSetInnerHTML(elements.ledgerList, "");
 
   if (state.accounts.length === 0) {
     elements.ledgerEmptyState.classList.remove("hidden");
@@ -1581,7 +1501,9 @@ function renderGeneralLedger() {
   ledgers.forEach((ledger) => {
     const card = document.createElement("article");
     card.className = "ledger-card";
-    card.innerHTML = `
+    safeSetInnerHTML(
+      card,
+      `
       <div class="ledger-card-header">
         <div>
           <h3>${escapeHtml(ledger.account.code)} - ${escapeHtml(ledger.account.name)}</h3>
@@ -1640,8 +1562,8 @@ function renderGeneralLedger() {
 }
 
 function renderTrialBalance() {
-  elements.trialBalanceTableBody.innerHTML = "";
-  elements.trialBalanceTableFoot.innerHTML = "";
+  safeSetInnerHTML(elements.trialBalanceTableBody, "");
+  safeSetInnerHTML(elements.trialBalanceTableFoot, "");
 
   if (state.accounts.length === 0) {
     elements.trialBalanceEmptyState.classList.remove("hidden");
@@ -1654,7 +1576,9 @@ function renderTrialBalance() {
 
   report.rows.forEach((row) => {
     const tableRow = document.createElement("tr");
-    tableRow.innerHTML = `
+    safeSetInnerHTML(
+      tableRow,
+      `
       <td>${escapeHtml(row.account.code)}</td>
       <td>${escapeHtml(row.account.name)}</td>
       <td>${escapeHtml(row.account.type)}</td>
@@ -1667,7 +1591,9 @@ function renderTrialBalance() {
   });
 
   const totalsRow = document.createElement("tr");
-  totalsRow.innerHTML = `
+  safeSetInnerHTML(
+    totalsRow,
+    `
     <td colspan="3">Grand Total</td>
     <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalDebits))}</td>
     <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalCredits))}</td>
@@ -1677,7 +1603,9 @@ function renderTrialBalance() {
   elements.trialBalanceTableFoot.appendChild(totalsRow);
 
   const statusRow = document.createElement("tr");
-  statusRow.innerHTML = `
+  safeSetInnerHTML(
+    statusRow,
+    `
     <td colspan="7">
       <div class="report-status">
         Trial balance totals are ${report.totalsBalanced ? "balanced" : "not balanced"}.
@@ -1689,9 +1617,9 @@ function renderTrialBalance() {
 }
 
 function renderIncomeStatement() {
-  elements.incomeRevenueList.innerHTML = "";
-  elements.incomeExpenseList.innerHTML = "";
-  elements.incomeSummaryBody.innerHTML = "";
+  safeSetInnerHTML(elements.incomeRevenueList, "");
+  safeSetInnerHTML(elements.incomeExpenseList, "");
+  safeSetInnerHTML(elements.incomeSummaryBody, "");
 
   const report = buildIncomeStatementReport();
 
@@ -1724,19 +1652,22 @@ function renderIncomeStatement() {
 
   summaryRows.forEach(([label, value]) => {
     const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${escapeHtml(label)}</td>
-      <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
-    `;
+    safeSetInnerHTML(
+      row,
+      `
+        <td>${escapeHtml(label)}</td>
+        <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
+      `,
+    );
     elements.incomeSummaryBody.appendChild(row);
   });
 }
 
 function renderBalanceSheet() {
-  elements.balanceSheetAssetsList.innerHTML = "";
-  elements.balanceSheetLiabilitiesList.innerHTML = "";
-  elements.balanceSheetEquityList.innerHTML = "";
-  elements.balanceSheetSummaryBody.innerHTML = "";
+  safeSetInnerHTML(elements.balanceSheetAssetsList, "");
+  safeSetInnerHTML(elements.balanceSheetLiabilitiesList, "");
+  safeSetInnerHTML(elements.balanceSheetEquityList, "");
+  safeSetInnerHTML(elements.balanceSheetSummaryBody, "");
 
   const report = buildBalanceSheetReport();
 
@@ -1828,10 +1759,13 @@ function renderBalanceSheet() {
 
   summaryRows.forEach(([label, value]) => {
     const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${escapeHtml(label)}</td>
-      <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
-    `;
+    safeSetInnerHTML(
+      row,
+      `
+        <td>${escapeHtml(label)}</td>
+        <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
+      `,
+    );
     elements.balanceSheetSummaryBody.appendChild(row);
   });
 
@@ -1843,10 +1777,10 @@ function renderBalanceSheet() {
 }
 
 function renderCashFlowStatement() {
-  elements.cashFlowOperatingList.innerHTML = "";
-  elements.cashFlowInvestingList.innerHTML = "";
-  elements.cashFlowFinancingList.innerHTML = "";
-  elements.cashFlowSummaryBody.innerHTML = "";
+  safeSetInnerHTML(elements.cashFlowOperatingList, "");
+  safeSetInnerHTML(elements.cashFlowInvestingList, "");
+  safeSetInnerHTML(elements.cashFlowFinancingList, "");
+  safeSetInnerHTML(elements.cashFlowSummaryBody, "");
 
   const report = buildCashFlowStatementReport();
 
@@ -1900,10 +1834,13 @@ function renderCashFlowStatement() {
 
   summaryRows.forEach(([label, value]) => {
     const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${escapeHtml(label)}</td>
-      <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
-    `;
+    safeSetInnerHTML(
+      row,
+      `
+        <td>${escapeHtml(label)}</td>
+        <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
+      `,
+    );
     elements.cashFlowSummaryBody.appendChild(row);
   });
 
@@ -1916,7 +1853,7 @@ function renderCashFlowStatement() {
 }
 
 function renderAssistant() {
-  elements.assistantChat.innerHTML = "";
+  safeSetInnerHTML(elements.assistantChat, "");
 
   const introMessage = document.createElement("div");
   introMessage.className = "chat-message system";
@@ -2261,7 +2198,7 @@ function openJournalDialog(entry) {
   elements.saveJournalButton.textContent = entry ? "Update Entry" : "Save Entry";
   elements.journalDate.value = entry?.date || getTodayDate();
   elements.journalDescription.value = entry?.description || "";
-  elements.lineItemsList.innerHTML = "";
+  safeSetInnerHTML(elements.lineItemsList, "");
 
   const lineItems = entry?.lineItems?.length
     ? entry.lineItems
@@ -2280,7 +2217,7 @@ function closeJournalDialog() {
 function resetJournalForm() {
   state.editingJournalId = null;
   elements.journalForm.reset();
-  elements.lineItemsList.innerHTML = "";
+  safeSetInnerHTML(elements.lineItemsList, "");
   hideJournalError();
   refreshJournalSummary();
 }
@@ -2288,7 +2225,9 @@ function resetJournalForm() {
 function addLineItemRow(line = createEmptyLineItem()) {
   const row = document.createElement("div");
   row.className = "line-item-row";
-  row.innerHTML = `
+  safeSetInnerHTML(
+    row,
+    `
     <label>
       <span>Account</span>
       <select class="line-account" required>
@@ -3023,7 +2962,9 @@ function renderBalanceSheetSectionGroup(container, label, sectionKey, rows) {
 
   const subtotal = rows.reduce((sum, row) => sum + row.amount, 0);
   const expanded = state.balanceSheetSections[sectionKey];
-  section.innerHTML = `
+  safeSetInnerHTML(
+    section,
+    `
     <button class="section-toggle" type="button" data-balance-toggle="${sectionKey}" aria-expanded="${expanded}">
       <span>${escapeHtml(label)}</span>
       <span>${escapeHtml(currencyFormatter.format(subtotal))} ${expanded ? "−" : "+"}</span>
@@ -3037,7 +2978,7 @@ function renderBalanceSheetSectionGroup(container, label, sectionKey, rows) {
   if (rows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "statement-row muted-row";
-    empty.innerHTML = "<span class=\"statement-label\">No accounts</span><strong>-</strong>";
+    safeSetInnerHTML(empty, "<span class=\"statement-label\">No accounts</span><strong>-</strong>");
     body.appendChild(empty);
   } else {
     rows.forEach((row) => {
@@ -3142,18 +3083,24 @@ function buildAssistantFinancialContext() {
 function createStatementRow(label, amount) {
   const row = document.createElement("div");
   row.className = "statement-row";
-  row.innerHTML = `
-    <span class="statement-label">${escapeHtml(label)}</span>
-    <strong>${escapeHtml(currencyFormatter.format(amount))}</strong>
-  `;
+  safeSetInnerHTML(
+    row,
+    `
+      <span class="statement-label">${escapeHtml(label)}</span>
+      <strong>${escapeHtml(currencyFormatter.format(amount))}</strong>
+    `,
+  );
   return row;
 }
 
 function renderSectionSubtotal(element, label, amount) {
-  element.innerHTML = `
-    <span>${escapeHtml(label)}</span>
-    <strong>${escapeHtml(currencyFormatter.format(amount))}</strong>
-  `;
+  safeSetInnerHTML(
+    element,
+    `
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(currencyFormatter.format(amount))}</strong>
+    `,
+  );
 }
 
 function buildAccountOptions(selectedId = "") {
@@ -3219,6 +3166,55 @@ function getTodayDate() {
 
 function findAccount(accountId) {
   return state.accounts.find((account) => account.id === accountId) || null;
+}
+
+function updateSelectOptions(select, options, placeholder, { getValue, getLabel } = {}) {
+  if (!select) {
+    return;
+  }
+
+  const normalizedOptions = Array.isArray(options) ? options : [];
+  const previousValue = select.value;
+  const formattedOptions = normalizedOptions
+    .map((entry) => {
+      const value = String(getValue ? getValue(entry) : entry || "").trim();
+      if (!value) {
+        return null;
+      }
+
+      const label = String(getLabel ? getLabel(entry) : entry || value).trim();
+      return {
+        value,
+        label: label || value,
+      };
+    })
+    .filter(Boolean);
+
+  const rows = [`<option value="">${escapeHtml(placeholder)}</option>`];
+  formattedOptions.forEach((option) => {
+    rows.push(
+      `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`,
+    );
+  });
+
+  safeSetInnerHTML(select, rows.join(""));
+  if (formattedOptions.some((option) => option.value === previousValue)) {
+    select.value = previousValue;
+  } else {
+    select.value = "";
+  }
+}
+
+function normalizeString(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function safeSetInnerHTML(target, html) {
+  if (!target) {
+    return;
+  }
+
+  target.innerHTML = html;
 }
 
 function escapeHtml(value) {
