@@ -3,12 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LedgrAI</title>
+    <title>LedgrAI — AI Accounting Workspace</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
+    />
+    <meta
+      name="description"
+      content="Smart books, financial statements, and AI assistant in one workspace."
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -164,6 +169,13 @@
             </div>
           </header>
 
+          <div class="setup-banner hidden" data-setup-banner>
+            <span>Complete your Company Setup first for accurate reporting.</span>
+            <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
+              &times;
+            </button>
+          </div>
+
           <div class="content-grid">
             <section class="panel stats-panel dashboard-stats">
               <div class="stat-card dashboard-card dashboard-card-positive">
@@ -272,41 +284,44 @@
 
                   <label>
                     <span>Country</span>
-                    <input
-                      id="company-country"
-                      name="country"
-                      type="text"
-                      list="country-options"
-                      placeholder="Search country"
-                      autocomplete="off"
-                    />
-                    <datalist id="country-options"></datalist>
+                    <div class="search-select" data-search-select="country">
+                      <input
+                        id="company-country"
+                        name="country"
+                        type="text"
+                        placeholder="Search country"
+                        autocomplete="off"
+                      />
+                      <div class="search-select-menu hidden" id="country-options"></div>
+                    </div>
                   </label>
 
                   <label>
                     <span>State / Province</span>
-                    <input
-                      id="company-state"
-                      name="stateProvince"
-                      type="text"
-                      list="state-options"
-                      placeholder="Search state or province"
-                      autocomplete="off"
-                    />
-                    <datalist id="state-options"></datalist>
+                    <div class="search-select" data-search-select="state">
+                      <input
+                        id="company-state"
+                        name="stateProvince"
+                        type="text"
+                        placeholder="Search state or province"
+                        autocomplete="off"
+                      />
+                      <div class="search-select-menu hidden" id="state-options"></div>
+                    </div>
                   </label>
 
                   <label>
                     <span>City</span>
-                    <input
-                      id="company-city"
-                      name="city"
-                      type="text"
-                      list="city-options"
-                      placeholder="Search city"
-                      autocomplete="off"
-                    />
-                    <datalist id="city-options"></datalist>
+                    <div class="search-select" data-search-select="city">
+                      <input
+                        id="company-city"
+                        name="city"
+                        type="text"
+                        placeholder="Search city"
+                        autocomplete="off"
+                      />
+                      <div class="search-select-menu hidden" id="city-options"></div>
+                    </div>
                   </label>
 
                   <label>
@@ -358,6 +373,13 @@
               <button class="primary-button" id="add-account-button" type="button">Add Account</button>
             </div>
           </header>
+
+          <div class="setup-banner hidden" data-setup-banner>
+            <span>Complete your Company Setup first for accurate reporting.</span>
+            <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
+              &times;
+            </button>
+          </div>
 
           <div class="content-grid">
             <section class="panel stats-panel">
@@ -425,6 +447,13 @@
               </button>
             </div>
           </header>
+
+          <div class="setup-banner hidden" data-setup-banner>
+            <span>Complete your Company Setup first for accurate reporting.</span>
+            <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
+              &times;
+            </button>
+          </div>
 
           <section class="panel table-panel">
             <div class="table-toolbar">
@@ -501,6 +530,13 @@
             </div>
           </header>
 
+          <div class="setup-banner hidden" data-setup-banner>
+            <span>Complete your Company Setup first for accurate reporting.</span>
+            <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
+              &times;
+            </button>
+          </div>
+
           <section class="panel table-panel" id="trial-balance-section">
             <div class="table-wrapper">
               <table>
@@ -542,6 +578,13 @@
               </button>
             </div>
           </header>
+
+          <div class="setup-banner hidden" data-setup-banner>
+            <span>Complete your Company Setup first for accurate reporting.</span>
+            <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
+              &times;
+            </button>
+          </div>
 
           <div class="content-grid" id="income-statement-section">
             <section class="panel stats-panel income-stats">
@@ -613,6 +656,13 @@
               </button>
             </div>
           </header>
+
+          <div class="setup-banner hidden" data-setup-banner>
+            <span>Complete your Company Setup first for accurate reporting.</span>
+            <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
+              &times;
+            </button>
+          </div>
           <div class="content-grid" id="balance-sheet-section">
             <section class="panel stats-panel income-stats">
               <div class="stat-card">
@@ -717,6 +767,13 @@
               </button>
             </div>
           </header>
+
+          <div class="setup-banner hidden" data-setup-banner>
+            <span>Complete your Company Setup first for accurate reporting.</span>
+            <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
+              &times;
+            </button>
+          </div>
           <div class="content-grid" id="cash-flow-section">
             <section class="panel stats-panel income-stats">
               <div class="stat-card">

@@ -104,6 +104,73 @@ const countryCurrencySuggestions = {
   germany: "EUR",
   italy: "EUR",
   spain: "EUR",
+  ireland: "EUR",
+  portugal: "EUR",
+  netherlands: "EUR",
+  belgium: "EUR",
+  austria: "EUR",
+  greece: "EUR",
+  finland: "EUR",
+  estonia: "EUR",
+  latvia: "EUR",
+  lithuania: "EUR",
+  croatia: "EUR",
+  slovakia: "EUR",
+  slovenia: "EUR",
+  cyprus: "EUR",
+  malta: "EUR",
+  poland: "PLN",
+  czechia: "CZK",
+  "czech republic": "CZK",
+  hungary: "HUF",
+  romania: "RON",
+  sweden: "SEK",
+  norway: "NOK",
+  denmark: "DKK",
+  switzerland: "CHF",
+  iceland: "ISK",
+  turkey: "TRY",
+  russia: "RUB",
+  ukraine: "UAH",
+  egypt: "EGP",
+  morocco: "MAD",
+  tunisia: "TND",
+  uganda: "UGX",
+  tanzania: "TZS",
+  rwanda: "RWF",
+  zambia: "ZMW",
+  ethiopia: "ETB",
+  botswana: "BWP",
+  mauritius: "MUR",
+  jamaica: "JMD",
+  barbados: "BBD",
+  "trinidad and tobago": "TTD",
+  "dominican republic": "DOP",
+  "costa rica": "CRC",
+  guatemala: "GTQ",
+  honduras: "HNL",
+  nicaragua: "NIO",
+  panama: "PAB",
+  israel: "ILS",
+  qatar: "QAR",
+  kuwait: "KWD",
+  bahrain: "BHD",
+  oman: "OMR",
+  jordan: "JOD",
+  pakistan: "PKR",
+  bangladesh: "BDT",
+  "sri lanka": "LKR",
+  nepal: "NPR",
+  thailand: "THB",
+  malaysia: "MYR",
+  indonesia: "IDR",
+  philippines: "PHP",
+  vietnam: "VND",
+  "south korea": "KRW",
+  taiwan: "TWD",
+  macau: "MOP",
+  fiji: "FJD",
+  "papua new guinea": "PGK",
 };
 
 let currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -125,6 +192,8 @@ const state = {
   assistantMessages: [],
   assistantPending: false,
   authView: "login",
+  setupBannerDismissed: false,
+  activeSearchSelect: null,
   onboardingStepIndex: 0,
   locationOptions: {
     countries: [],
@@ -164,6 +233,7 @@ const elements = {
   logoutButton: document.querySelector("#logout-button"),
   navItems: [...document.querySelectorAll("[data-view-target]")],
   viewPanels: [...document.querySelectorAll("[data-view]")],
+  setupBanners: [...document.querySelectorAll("[data-setup-banner]")],
   dashboardCashBalance: document.querySelector("#dashboard-cash-balance"),
   dashboardNetIncome: document.querySelector("#dashboard-net-income"),
   dashboardTotalExpenses: document.querySelector("#dashboard-total-expenses"),
@@ -186,6 +256,7 @@ const elements = {
   stateOptionsList: document.querySelector("#state-options"),
   companyCity: document.querySelector("#company-city"),
   cityOptionsList: document.querySelector("#city-options"),
+  searchSelects: [...document.querySelectorAll("[data-search-select]")],
   financialYearStart: document.querySelector("#financial-year-start"),
   companySetupReset: document.querySelector("#company-setup-reset"),
   companySetupGuide: document.querySelector("#company-setup-guide"),
@@ -330,9 +401,24 @@ elements.currencySelector.addEventListener("change", handleCurrencySelectionInpu
 elements.currencySelector.addEventListener("input", handleCurrencySelectionInput);
 elements.companyCountry.addEventListener("change", handleCountrySelectionInput);
 elements.companyCountry.addEventListener("input", handleCountrySelectionInput);
+elements.companyCountry.addEventListener("focus", () => openSearchSelect("country"));
 elements.companyState.addEventListener("change", handleStateSelectionInput);
 elements.companyState.addEventListener("input", handleStateSelectionInput);
+elements.companyState.addEventListener("focus", () => openSearchSelect("state"));
 elements.companyCity.addEventListener("input", handleCitySelectionInput);
+elements.companyCity.addEventListener("focus", () => openSearchSelect("city"));
+elements.companyCity.addEventListener("change", handleCitySelectionInput);
+elements.searchSelects.forEach((container) => {
+  container.addEventListener("click", () => {
+    openSearchSelect(container.dataset.searchSelect);
+  });
+});
+elements.setupBanners.forEach((banner) => {
+  banner.querySelector("[data-dismiss-setup-banner]")?.addEventListener("click", () => {
+    state.setupBannerDismissed = true;
+    renderSetupBanners();
+  });
+});
 elements.onboardingPrevButton.addEventListener("click", goToPreviousOnboardingStep);
 elements.onboardingNextButton.addEventListener("click", goToNextOnboardingStep);
 elements.journalTableBody.addEventListener("click", handleJournalTableAction);
@@ -364,6 +450,7 @@ elements.balanceSheetEquityList.addEventListener("click", handleBalanceSheetTogg
 elements.assistantForm.addEventListener("submit", handleAssistantSubmit);
 elements.assistantClearButton.addEventListener("click", clearAssistantChat);
 window.addEventListener("resize", handleWindowResize);
+document.addEventListener("click", handleDocumentClick);
 
 bootApplication();
 
@@ -378,6 +465,7 @@ async function bootApplication() {
       state.accounts = syncOpeningBalanceEquityAccount([]);
       state.journalEntries = syncSystemJournalEntry([]);
       state.assistantMessages = [];
+      state.setupBannerDismissed = false;
       render();
       return;
     }
@@ -390,6 +478,7 @@ async function bootApplication() {
     state.companySetup = getDefaultCompanySetup();
     state.accounts = syncOpeningBalanceEquityAccount([]);
     state.journalEntries = syncSystemJournalEntry([]);
+    state.setupBannerDismissed = false;
     showAuthError(error.message);
     render();
   }
@@ -407,6 +496,7 @@ async function initializeState() {
   state.currentView = "dashboard";
   state.mobileSidebarOpen = false;
   state.sidebarCollapsed = false;
+  state.setupBannerDismissed = false;
   updateCurrencyFormatter();
   syncAssistantOnboardingMessage();
   await ensureLocationSelectionsLoaded();
@@ -585,27 +675,107 @@ async function ensureLocationSelectionsLoaded() {
 }
 
 function renderLocationOptions() {
-  elements.countryOptionsList.innerHTML = state.locationOptions.countries
-    .map((country) => `<option value="${escapeHtml(country)}"></option>`)
-    .join("");
-
   const states = state.locationOptions.statesByCountry.get(state.companySetup.country) || [];
-  elements.stateOptionsList.innerHTML = states
-    .map((stateOption) => `<option value="${escapeHtml(stateOption)}"></option>`)
-    .join("");
-
   const cities =
     state.locationOptions.citiesByState.get(
       `${state.companySetup.country}::${state.companySetup.stateProvince}`,
     ) || [];
-  elements.cityOptionsList.innerHTML = cities
-    .map((city) => `<option value="${escapeHtml(city)}"></option>`)
-    .join("");
+  renderSearchSelectMenu("country", state.locationOptions.countries, elements.companyCountry.value.trim());
+  renderSearchSelectMenu("state", states, elements.companyState.value.trim());
+  renderSearchSelectMenu("city", cities, elements.companyCity.value.trim());
 }
 
 function getSuggestedCurrencyForCountry(countryName) {
   const key = String(countryName || "").trim().toLowerCase();
   return countryCurrencySuggestions[key] || "";
+}
+
+function renderSearchSelectMenu(type, options, query = "") {
+  const menu = getSearchSelectMenu(type);
+  if (!menu) {
+    return;
+  }
+
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const filteredOptions = options.filter((option) =>
+    String(option || "")
+      .toLowerCase()
+      .includes(normalizedQuery),
+  );
+
+  if (!filteredOptions.length) {
+    menu.innerHTML = '<div class="search-select-empty">No matches found.</div>';
+    return;
+  }
+
+  menu.innerHTML = filteredOptions
+    .map(
+      (option) =>
+        `<button class="search-select-option" type="button" data-search-select-option="${type}" data-value="${escapeHtml(option)}">${escapeHtml(option)}</button>`,
+    )
+    .join("");
+
+  menu.querySelectorAll("[data-search-select-option]").forEach((button) => {
+    button.addEventListener("click", () => selectSearchOption(type, button.dataset.value || ""));
+  });
+}
+
+function getSearchSelectMenu(type) {
+  if (type === "country") {
+    return elements.countryOptionsList;
+  }
+
+  if (type === "state") {
+    return elements.stateOptionsList;
+  }
+
+  if (type === "city") {
+    return elements.cityOptionsList;
+  }
+
+  return null;
+}
+
+function openSearchSelect(type) {
+  state.activeSearchSelect = type;
+  elements.searchSelects.forEach((container) => {
+    const menu = container.querySelector(".search-select-menu");
+    const active = container.dataset.searchSelect === type;
+    menu?.classList.toggle("hidden", !active);
+  });
+  renderLocationOptions();
+}
+
+function closeSearchSelects() {
+  state.activeSearchSelect = null;
+  elements.searchSelects.forEach((container) => {
+    container.querySelector(".search-select-menu")?.classList.add("hidden");
+  });
+}
+
+function selectSearchOption(type, value) {
+  if (type === "country") {
+    elements.companyCountry.value = value;
+    handleCountrySelectionInput();
+  }
+
+  if (type === "state") {
+    elements.companyState.value = value;
+    handleStateSelectionInput();
+  }
+
+  if (type === "city") {
+    elements.companyCity.value = value;
+    handleCitySelectionInput();
+  }
+
+  closeSearchSelects();
+}
+
+function handleDocumentClick(event) {
+  if (!event.target.closest("[data-search-select]")) {
+    closeSearchSelects();
+  }
 }
 
 function setAuthView(viewName) {
@@ -687,6 +857,7 @@ async function handleLogout() {
   state.companySetup = getDefaultCompanySetup();
   state.assistantMessages = [];
   state.authView = "login";
+  state.setupBannerDismissed = false;
   render();
 }
 
@@ -698,6 +869,7 @@ function render() {
 
   renderNavigation();
   renderBranding();
+  renderSetupBanners();
   renderDashboard();
   renderCompanySetup();
   renderAccountsTable();
@@ -761,6 +933,21 @@ function renderBranding() {
   });
   elements.brandEyebrows.forEach((element) => {
     element.textContent = eyebrow;
+  });
+}
+
+function isSetupGateIncomplete() {
+  return !(
+    state.companySetup.companyName.trim() &&
+    state.companySetup.country.trim() &&
+    state.companySetup.currency.trim()
+  );
+}
+
+function renderSetupBanners() {
+  const showBanner = isSetupGateIncomplete() && !state.setupBannerDismissed;
+  elements.setupBanners.forEach((banner) => {
+    banner.classList.toggle("hidden", !showBanner);
   });
 }
 
@@ -2089,6 +2276,7 @@ function openJournalDialog(entry) {
   lineItems.forEach((line) => addLineItemRow(line));
 
   refreshJournalSummary();
+  elements.saveJournalButton.disabled = !canSaveJournalEntries();
   elements.journalDialog.showModal();
 }
 
@@ -2172,6 +2360,11 @@ function refreshJournalSummary() {
 async function handleJournalSubmit(event) {
   event.preventDefault();
 
+  if (!canSaveJournalEntries()) {
+    showJournalError("Set your company name and currency in Company Setup before saving journal entries.");
+    return;
+  }
+
   const date = elements.journalDate.value;
   const description = elements.journalDescription.value.trim();
   const rawLineItems = collectLineItemsFromForm();
@@ -2233,6 +2426,10 @@ async function handleJournalSubmit(event) {
   } catch (error) {
     showJournalError(error.message);
   }
+}
+
+function canSaveJournalEntries() {
+  return Boolean(state.companySetup.companyName.trim() && state.companySetup.currency.trim());
 }
 
 function collectLineItemsFromForm({ skipValidation = false } = {}) {
