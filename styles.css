@@ -150,6 +150,71 @@ label span {
   color: var(--muted);
 }
 
+.dashboard-stats .stat-card {
+  position: relative;
+}
+
+.dashboard-card::before {
+  content: "";
+  display: block;
+  width: 48px;
+  height: 4px;
+  border-radius: 999px;
+  margin-bottom: 14px;
+  background: rgba(15, 23, 42, 0.14);
+}
+
+.dashboard-card-positive::before {
+  background: #059669;
+}
+
+.dashboard-card-negative::before {
+  background: #dc2626;
+}
+
+.dashboard-transactions {
+  display: grid;
+  gap: 14px;
+}
+
+.dashboard-transaction {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(255, 255, 255, 0.95));
+}
+
+.dashboard-transaction-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboard-transaction-date {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.dashboard-transaction-amount {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dashboard-transaction-amount.positive {
+  color: #047857;
+}
+
+.dashboard-transaction-amount.negative {
+  color: #b91c1c;
+}
+
 .eyebrow,
 th,
 .stat-label,

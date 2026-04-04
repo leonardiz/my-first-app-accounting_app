@@ -92,11 +92,15 @@
           <p class="sidebar-brand-copy">Smart books, reporting, and setup in one workspace.</p>
         </div>
         <nav class="sidebar-nav" aria-label="Primary">
+          <button class="nav-item is-active" type="button" data-view-target="dashboard">
+            <span class="nav-icon">DB</span>
+            <span class="nav-label">Dashboard</span>
+          </button>
           <button class="nav-item" type="button" data-view-target="company-setup">
             <span class="nav-icon">CS</span>
             <span class="nav-label">Company Setup</span>
           </button>
-          <button class="nav-item is-active" type="button" data-view-target="chart">
+          <button class="nav-item" type="button" data-view-target="chart">
             <span class="nav-icon">COA</span>
             <span class="nav-label">Chart of Accounts</span>
           </button>
@@ -149,6 +153,55 @@
         </section>
 
         <div class="view-stack">
+        <section class="view-panel is-active" data-view="dashboard">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Dashboard</p>
+              <h2>Financial Overview</h2>
+              <p class="hero-copy">
+                Review the latest cash position, monthly performance, and recent activity at a glance.
+              </p>
+            </div>
+          </header>
+
+          <div class="content-grid">
+            <section class="panel stats-panel dashboard-stats">
+              <div class="stat-card dashboard-card dashboard-card-positive">
+                <span class="stat-label">Current Cash Balance</span>
+                <strong class="stat-value" id="dashboard-cash-balance">$0.00</strong>
+              </div>
+              <div class="stat-card dashboard-card">
+                <span class="stat-label">Net Income This Month</span>
+                <strong class="stat-value" id="dashboard-net-income">$0.00</strong>
+              </div>
+              <div class="stat-card dashboard-card dashboard-card-negative">
+                <span class="stat-label">Total Expenses</span>
+                <strong class="stat-value" id="dashboard-total-expenses">$0.00</strong>
+              </div>
+              <div class="stat-card dashboard-card">
+                <span class="stat-label">Accounts Payable</span>
+                <strong class="stat-value" id="dashboard-accounts-payable">$0.00</strong>
+              </div>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Recent Transactions</h3>
+                  <p>Latest posted journal entries across the workspace.</p>
+                </div>
+              </div>
+
+              <div class="dashboard-transactions" id="dashboard-transactions"></div>
+
+              <div class="empty-state hidden" id="dashboard-empty-state">
+                <h3>No recent transactions</h3>
+                <p>Create journal entries to populate the dashboard activity feed.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
         <section class="view-panel" data-view="company-setup">
           <header class="hero panel">
             <div>
@@ -215,6 +268,45 @@
                     <small class="field-hint" id="currency-selection-hint">
                       Search by code, currency name, or symbol.
                     </small>
+                  </label>
+
+                  <label>
+                    <span>Country</span>
+                    <input
+                      id="company-country"
+                      name="country"
+                      type="text"
+                      list="country-options"
+                      placeholder="Search country"
+                      autocomplete="off"
+                    />
+                    <datalist id="country-options"></datalist>
+                  </label>
+
+                  <label>
+                    <span>State / Province</span>
+                    <input
+                      id="company-state"
+                      name="stateProvince"
+                      type="text"
+                      list="state-options"
+                      placeholder="Search state or province"
+                      autocomplete="off"
+                    />
+                    <datalist id="state-options"></datalist>
+                  </label>
+
+                  <label>
+                    <span>City</span>
+                    <input
+                      id="company-city"
+                      name="city"
+                      type="text"
+                      list="city-options"
+                      placeholder="Search city"
+                      autocomplete="off"
+                    />
+                    <datalist id="city-options"></datalist>
                   </label>
 
                   <label>

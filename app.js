@@ -82,6 +82,29 @@ const currencyCatalog = [
   { code: "PGK", symbol: "K", name: "Papua New Guinean Kina" },
   { code: "ISK", symbol: "kr", name: "Icelandic Krona" },
 ];
+const countryCurrencySuggestions = {
+  nigeria: "NGN",
+  "united states": "USD",
+  "united states of america": "USD",
+  usa: "USD",
+  uk: "GBP",
+  "united kingdom": "GBP",
+  england: "GBP",
+  ghana: "GHS",
+  kenya: "KES",
+  "south africa": "ZAR",
+  canada: "CAD",
+  australia: "AUD",
+  japan: "JPY",
+  china: "CNY",
+  india: "INR",
+  "united arab emirates": "AED",
+  "saudi arabia": "SAR",
+  france: "EUR",
+  germany: "EUR",
+  italy: "EUR",
+  spain: "EUR",
+};
 
 let currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -103,6 +126,11 @@ const state = {
   assistantPending: false,
   authView: "login",
   onboardingStepIndex: 0,
+  locationOptions: {
+    countries: [],
+    statesByCountry: new Map(),
+    citiesByState: new Map(),
+  },
   balanceSheetSections: {
     currentAssets: true,
     nonCurrentAssets: true,
@@ -136,6 +164,12 @@ const elements = {
   logoutButton: document.querySelector("#logout-button"),
   navItems: [...document.querySelectorAll("[data-view-target]")],
   viewPanels: [...document.querySelectorAll("[data-view]")],
+  dashboardCashBalance: document.querySelector("#dashboard-cash-balance"),
+  dashboardNetIncome: document.querySelector("#dashboard-net-income"),
+  dashboardTotalExpenses: document.querySelector("#dashboard-total-expenses"),
+  dashboardAccountsPayable: document.querySelector("#dashboard-accounts-payable"),
+  dashboardTransactions: document.querySelector("#dashboard-transactions"),
+  dashboardEmptyState: document.querySelector("#dashboard-empty-state"),
   companySetupForm: document.querySelector("#company-setup-form"),
   companyName: document.querySelector("#company-name"),
   companyIndustry: document.querySelector("#company-industry"),
@@ -146,6 +180,12 @@ const elements = {
   currencySelector: document.querySelector("#currency-selector"),
   currencyOptionsList: document.querySelector("#currency-options"),
   currencySelectionHint: document.querySelector("#currency-selection-hint"),
+  companyCountry: document.querySelector("#company-country"),
+  countryOptionsList: document.querySelector("#country-options"),
+  companyState: document.querySelector("#company-state"),
+  stateOptionsList: document.querySelector("#state-options"),
+  companyCity: document.querySelector("#company-city"),
+  cityOptionsList: document.querySelector("#city-options"),
   financialYearStart: document.querySelector("#financial-year-start"),
   companySetupReset: document.querySelector("#company-setup-reset"),
   companySetupGuide: document.querySelector("#company-setup-guide"),
@@ -288,6 +328,11 @@ elements.companySetupForm.addEventListener("submit", handleCompanySetupSubmit);
 elements.companySetupReset.addEventListener("click", resetCompanySetup);
 elements.currencySelector.addEventListener("change", handleCurrencySelectionInput);
 elements.currencySelector.addEventListener("input", handleCurrencySelectionInput);
+elements.companyCountry.addEventListener("change", handleCountrySelectionInput);
+elements.companyCountry.addEventListener("input", handleCountrySelectionInput);
+elements.companyState.addEventListener("change", handleStateSelectionInput);
+elements.companyState.addEventListener("input", handleStateSelectionInput);
+elements.companyCity.addEventListener("input", handleCitySelectionInput);
 elements.onboardingPrevButton.addEventListener("click", goToPreviousOnboardingStep);
 elements.onboardingNextButton.addEventListener("click", goToNextOnboardingStep);
 elements.journalTableBody.addEventListener("click", handleJournalTableAction);
@@ -300,6 +345,9 @@ elements.journalTableBody.addEventListener("keydown", handleJournalDescriptionKe
   elements.companyPhone,
   elements.companyEmail,
   elements.currencySelector,
+  elements.companyCountry,
+  elements.companyState,
+  elements.companyCity,
   elements.financialYearStart,
 ].forEach((input, index) => {
   input.addEventListener("focus", () => {
@@ -322,6 +370,7 @@ bootApplication();
 async function bootApplication() {
   try {
     renderCurrencyOptions();
+    await loadCountries();
     const session = await fetchCurrentSession();
     if (!session) {
       state.currentUser = null;
@@ -355,11 +404,12 @@ async function initializeState() {
     Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
   );
   state.assistantMessages = [];
-  state.currentView = isCompanySetupComplete() ? "chart" : "company-setup";
+  state.currentView = "dashboard";
   state.mobileSidebarOpen = false;
   state.sidebarCollapsed = false;
   updateCurrencyFormatter();
   syncAssistantOnboardingMessage();
+  await ensureLocationSelectionsLoaded();
 }
 
 async function fetchCurrentSession() {
@@ -421,6 +471,141 @@ function normalizeCompanySetup(company) {
     ...(company || {}),
     currency: selectedCurrency?.code || fallback.currency,
   };
+}
+
+async function loadCountries() {
+  if (state.locationOptions.countries.length) {
+    return;
+  }
+
+  try {
+    const response = await fetch("https://countriesnow.space/api/v0.1/countries");
+    const payload = await response.json();
+    const countries = Array.isArray(payload?.data)
+      ? payload.data
+          .map((entry) => String(entry.country || entry.name || "").trim())
+          .filter(Boolean)
+          .sort((left, right) => left.localeCompare(right))
+      : [];
+    state.locationOptions.countries = countries;
+    renderLocationOptions();
+  } catch {}
+}
+
+async function loadStatesForCountry(countryName) {
+  const normalizedCountry = String(countryName || "").trim();
+  if (!normalizedCountry) {
+    return [];
+  }
+
+  if (state.locationOptions.statesByCountry.has(normalizedCountry)) {
+    return state.locationOptions.statesByCountry.get(normalizedCountry);
+  }
+
+  try {
+    const response = await fetch("https://countriesnow.space/api/v0.1/countries/states");
+    const payload = await response.json();
+    const statesByCountry = new Map();
+    if (Array.isArray(payload?.data)) {
+      payload.data.forEach((entry) => {
+        const name = String(entry.name || entry.country || "").trim();
+        const states = Array.isArray(entry.states)
+          ? entry.states
+              .map((stateEntry) => String(stateEntry.name || stateEntry.state || "").trim())
+              .filter(Boolean)
+          : [];
+        if (name) {
+          statesByCountry.set(name, states);
+        }
+      });
+    }
+
+    state.locationOptions.statesByCountry = statesByCountry;
+    return statesByCountry.get(normalizedCountry) || [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadCitiesForState(countryName, stateName) {
+  const normalizedCountry = String(countryName || "").trim();
+  const normalizedState = String(stateName || "").trim();
+  if (!normalizedCountry || !normalizedState) {
+    return [];
+  }
+
+  const cacheKey = `${normalizedCountry}::${normalizedState}`;
+  if (state.locationOptions.citiesByState.has(cacheKey)) {
+    return state.locationOptions.citiesByState.get(cacheKey);
+  }
+
+  const requestPayload = {
+    country: normalizedCountry,
+    state: normalizedState,
+  };
+
+  try {
+    const response = await fetch("https://countriesnow.space/api/v0.1/countries/state/cities", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestPayload),
+    });
+    const payload = await response.json();
+    const cities = Array.isArray(payload?.data) ? payload.data.map((city) => String(city).trim()).filter(Boolean) : [];
+    state.locationOptions.citiesByState.set(cacheKey, cities);
+    return cities;
+  } catch {
+    try {
+      const fallbackUrl = new URL("https://countriesnow.space/api/v0.1/countries/state/cities");
+      fallbackUrl.searchParams.set("country", normalizedCountry);
+      fallbackUrl.searchParams.set("state", normalizedState);
+      const response = await fetch(fallbackUrl.toString());
+      const payload = await response.json();
+      const cities = Array.isArray(payload?.data)
+        ? payload.data.map((city) => String(city).trim()).filter(Boolean)
+        : [];
+      state.locationOptions.citiesByState.set(cacheKey, cities);
+      return cities;
+    } catch {
+      return [];
+    }
+  }
+}
+
+async function ensureLocationSelectionsLoaded() {
+  await loadCountries();
+  if (state.companySetup.country) {
+    await loadStatesForCountry(state.companySetup.country);
+  }
+  if (state.companySetup.country && state.companySetup.stateProvince) {
+    await loadCitiesForState(state.companySetup.country, state.companySetup.stateProvince);
+  }
+}
+
+function renderLocationOptions() {
+  elements.countryOptionsList.innerHTML = state.locationOptions.countries
+    .map((country) => `<option value="${escapeHtml(country)}"></option>`)
+    .join("");
+
+  const states = state.locationOptions.statesByCountry.get(state.companySetup.country) || [];
+  elements.stateOptionsList.innerHTML = states
+    .map((stateOption) => `<option value="${escapeHtml(stateOption)}"></option>`)
+    .join("");
+
+  const cities =
+    state.locationOptions.citiesByState.get(
+      `${state.companySetup.country}::${state.companySetup.stateProvince}`,
+    ) || [];
+  elements.cityOptionsList.innerHTML = cities
+    .map((city) => `<option value="${escapeHtml(city)}"></option>`)
+    .join("");
+}
+
+function getSuggestedCurrencyForCountry(countryName) {
+  const key = String(countryName || "").trim().toLowerCase();
+  return countryCurrencySuggestions[key] || "";
 }
 
 function setAuthView(viewName) {
@@ -513,6 +698,7 @@ function render() {
 
   renderNavigation();
   renderBranding();
+  renderDashboard();
   renderCompanySetup();
   renderAccountsTable();
   renderJournalTable();
@@ -578,6 +764,96 @@ function renderBranding() {
   });
 }
 
+function renderDashboard() {
+  const cashFlow = buildCashFlowStatementReport();
+  const incomeStatement = buildIncomeStatementReport();
+  const monthlyNetIncome = buildCurrentMonthNetIncome();
+  const accountsPayable = buildAccountsPayableBalance();
+  const recentTransactions = state.journalEntries
+    .filter((entry) => !entry.systemGenerated)
+    .slice()
+    .sort((left, right) => new Date(right.date) - new Date(left.date))
+    .slice(0, 6);
+
+  elements.dashboardCashBalance.textContent = currencyFormatter.format(cashFlow.closingCash);
+  elements.dashboardNetIncome.textContent = currencyFormatter.format(monthlyNetIncome);
+  elements.dashboardNetIncome.classList.toggle("negative", monthlyNetIncome < 0);
+  elements.dashboardTotalExpenses.textContent = currencyFormatter.format(incomeStatement.operatingExpenses);
+  elements.dashboardAccountsPayable.textContent = currencyFormatter.format(accountsPayable);
+  elements.dashboardTransactions.innerHTML = "";
+
+  if (!recentTransactions.length) {
+    elements.dashboardEmptyState.classList.remove("hidden");
+    return;
+  }
+
+  elements.dashboardEmptyState.classList.add("hidden");
+  recentTransactions.forEach((entry) => {
+    const totals = calculateLineTotals(entry.lineItems);
+    const amount = totals.debits;
+    const item = document.createElement("article");
+    item.className = "dashboard-transaction";
+    item.innerHTML = `
+      <div class="dashboard-transaction-meta">
+        <strong>${escapeHtml(entry.description)}</strong>
+        <span class="dashboard-transaction-date">${escapeHtml(formatDate(entry.date))}</span>
+      </div>
+      <strong class="dashboard-transaction-amount ${amount >= 0 ? "positive" : "negative"}">
+        ${escapeHtml(currencyFormatter.format(amount))}
+      </strong>
+    `;
+    elements.dashboardTransactions.appendChild(item);
+  });
+}
+
+function buildCurrentMonthNetIncome() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  return state.journalEntries
+    .filter((entry) => !entry.systemGenerated)
+    .filter((entry) => {
+      const entryDate = new Date(`${entry.date}T00:00:00`);
+      return entryDate.getFullYear() === year && entryDate.getMonth() === month;
+    })
+    .reduce((sum, entry) => {
+      const entryImpact = entry.lineItems.reduce((entrySum, line) => {
+        const account = findAccount(line.accountId);
+        if (!account) {
+          return entrySum;
+        }
+
+        if (account.type === "Revenue") {
+          return entrySum + ((Number(line.credit) || 0) - (Number(line.debit) || 0));
+        }
+
+        if (account.type === "Expense") {
+          return entrySum - ((Number(line.debit) || 0) - (Number(line.credit) || 0));
+        }
+
+        return entrySum;
+      }, 0);
+
+      return sum + entryImpact;
+    }, 0);
+}
+
+function buildAccountsPayableBalance() {
+  return state.accounts
+    .filter((account) => account.type === "Liability" && /payable/i.test(account.name))
+    .reduce((sum, account) => {
+      const postingTotals = getPostingTotalsForAccount(account.id);
+      const closingBalance = calculateClosingBalance(
+        Number(account.openingBalance) || 0,
+        postingTotals.debits,
+        postingTotals.credits,
+        account.type,
+      );
+      return sum + Math.max(0, closingBalance);
+    }, 0);
+}
+
 function renderCompanySetup() {
   const onboardingSteps = getOnboardingSteps();
   const currentStep = onboardingSteps[state.onboardingStepIndex] || onboardingSteps[0];
@@ -589,11 +865,15 @@ function renderCompanySetup() {
   elements.companyAddress.value = state.companySetup.address;
   elements.companyPhone.value = state.companySetup.phone;
   elements.companyEmail.value = state.companySetup.email;
+  elements.companyCountry.value = state.companySetup.country;
+  elements.companyState.value = state.companySetup.stateProvince;
+  elements.companyCity.value = state.companySetup.city;
   elements.currencySelector.value = formatCurrencyOptionLabel(selectedCurrency);
   elements.currencySelectionHint.textContent = selectedCurrency
     ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
     : "Search by code, currency name, or symbol.";
   elements.financialYearStart.value = state.companySetup.financialYearStart;
+  renderLocationOptions();
 
   elements.onboardingProgressBadge.textContent = `Step ${state.onboardingStepIndex + 1} of ${onboardingSteps.length}`;
   elements.onboardingSubtitle.textContent = currentStep
@@ -653,6 +933,9 @@ async function handleCompanySetupSubmit(event) {
     phone: elements.companyPhone.value.trim(),
     email: elements.companyEmail.value.trim(),
     currency: selectedCurrency.code,
+    country: elements.companyCountry.value.trim(),
+    stateProvince: elements.companyState.value.trim(),
+    city: elements.companyCity.value.trim(),
     financialYearStart: elements.financialYearStart.value,
   };
 
@@ -693,6 +976,40 @@ function handleCurrencySelectionInput() {
     : "Search by code, currency name, or symbol.";
 }
 
+async function handleCountrySelectionInput() {
+  const countryName = elements.companyCountry.value.trim();
+  state.companySetup.country = countryName;
+  state.companySetup.stateProvince = "";
+  state.companySetup.city = "";
+  elements.companyState.value = "";
+  elements.companyCity.value = "";
+  await loadStatesForCountry(countryName);
+  renderLocationOptions();
+
+  const suggestedCurrencyCode = getSuggestedCurrencyForCountry(countryName);
+  if (suggestedCurrencyCode) {
+    const suggestedCurrency = getCurrencyMeta(suggestedCurrencyCode);
+    if (suggestedCurrency) {
+      state.companySetup.currency = suggestedCurrency.code;
+      elements.currencySelector.value = formatCurrencyOptionLabel(suggestedCurrency);
+      handleCurrencySelectionInput();
+    }
+  }
+}
+
+async function handleStateSelectionInput() {
+  const stateName = elements.companyState.value.trim();
+  state.companySetup.stateProvince = stateName;
+  state.companySetup.city = "";
+  elements.companyCity.value = "";
+  await loadCitiesForState(elements.companyCountry.value.trim(), stateName);
+  renderLocationOptions();
+}
+
+function handleCitySelectionInput() {
+  state.companySetup.city = elements.companyCity.value.trim();
+}
+
 function goToPreviousOnboardingStep() {
   state.onboardingStepIndex = Math.max(0, state.onboardingStepIndex - 1);
   renderCompanySetup();
@@ -703,7 +1020,7 @@ function goToNextOnboardingStep() {
   if (state.onboardingStepIndex < steps.length - 1) {
     state.onboardingStepIndex += 1;
   } else {
-    setActiveView("chart");
+    setActiveView("dashboard");
   }
   renderCompanySetup();
 }
@@ -719,10 +1036,16 @@ function getOnboardingSteps() {
     },
     {
       title: "Business profile",
-      helper: "Capture the business type and address so setup is operationally complete.",
+      helper: "Capture the business type, address, and location so setup is operationally complete.",
       message:
-        "Step 2: Tell me the legal or operating business type and main address for the company profile.",
-      isComplete: Boolean(state.companySetup.businessType && state.companySetup.address),
+        "Step 2: Tell me the legal or operating business type, address, country, state or province, and city for the company profile.",
+      isComplete: Boolean(
+        state.companySetup.businessType &&
+          state.companySetup.address &&
+          state.companySetup.country &&
+          state.companySetup.stateProvince &&
+          state.companySetup.city,
+      ),
     },
     {
       title: "Primary contacts",
@@ -757,6 +1080,9 @@ function getDefaultCompanySetup() {
     phone: "",
     email: "",
     currency: "NGN",
+    country: "",
+    stateProvince: "",
+    city: "",
     financialYearStart: "",
   };
 }
@@ -835,6 +1161,7 @@ function isCompanySetupComplete() {
 
 function getViewTitle(viewName) {
   const titles = {
+    dashboard: "Dashboard",
     "company-setup": "Company Setup",
     chart: "Workspace",
     journal: "Journal Entries",
@@ -2549,6 +2876,9 @@ function buildAssistantFinancialContext() {
       phone: state.companySetup.phone,
       email: state.companySetup.email,
       currency: state.companySetup.currency,
+      country: state.companySetup.country,
+      stateProvince: state.companySetup.stateProvince,
+      city: state.companySetup.city,
       financialYearStart: state.companySetup.financialYearStart,
       setupComplete: isCompanySetupComplete(),
     },

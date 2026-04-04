@@ -412,6 +412,9 @@ function serializeCompany(company) {
     phone: company.phone || "",
     email: company.email || "",
     currency: company.currency || "NGN",
+    country: company.country || "",
+    stateProvince: company.stateProvince || "",
+    city: company.city || "",
     financialYearStart: company.financialYearStart || "",
   };
 }
@@ -448,6 +451,9 @@ function normalizeCompanyPayload(payload) {
     phone: String(payload.phone || "").trim(),
     email: String(payload.email || "").trim(),
     currency: String(payload.currency || "NGN").trim().toUpperCase(),
+    country: String(payload.country || "").trim(),
+    stateProvince: String(payload.stateProvince || "").trim(),
+    city: String(payload.city || "").trim(),
     financialYearStart: String(payload.financialYearStart || "").trim(),
   };
 }

@@ -45,6 +45,21 @@ const companySchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
+    country: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    stateProvince: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    city: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     financialYearStart: {
       type: String,
       default: "",
