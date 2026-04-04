@@ -21,6 +21,11 @@
   box-sizing: border-box;
 }
 
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html {
   font-size: 14px;
 }
@@ -36,6 +41,25 @@ body {
     radial-gradient(circle at top left, rgba(22, 119, 255, 0.14), transparent 24%),
     radial-gradient(circle at right top, rgba(15, 93, 204, 0.08), transparent 26%),
     linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+}
+
+.app-shell *,
+.main-shell *,
+.hero *,
+.content-grid *,
+.stats-panel *,
+.stat-card *,
+.balance-figures *,
+.balance-figure-card *,
+.summary-chip *,
+.statement-row *,
+.section-subtotal *,
+.ledger-card-header *,
+.ledger-card-footer *,
+.table-toolbar *,
+.assistant-actions *,
+.hero-actions * {
+  min-width: 0;
 }
 
 button,
@@ -77,6 +101,12 @@ label {
 
 label span {
   color: #334155;
+}
+
+.field-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .eyebrow,
@@ -320,25 +350,8 @@ th {
   gap: 20px;
 }
 
-.currency-toggle {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.currency-option {
-  padding: 13px 14px;
-  border: 1px solid rgba(15, 23, 42, 0.14);
-  border-radius: 14px;
-  background: #f8fafc;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.currency-option.is-active {
-  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-  border-color: transparent;
-  color: #ffffff;
+.currency-selector {
+  width: 100%;
 }
 
 .onboarding-panel {
@@ -405,16 +418,24 @@ th {
 
 .stats-panel {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 18px;
   padding: 22px;
+  justify-items: center;
 }
 
 .stat-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  width: 100%;
+  max-width: min(100%, 20rem);
+  justify-self: center;
   padding: 22px;
   border-radius: 20px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 244, 246, 0.92));
   border: 1px solid rgba(15, 23, 42, 0.05);
+  overflow: hidden;
 }
 
 .stat-label {
@@ -424,7 +445,12 @@ th {
 }
 
 .stat-value {
-  font-size: clamp(22px, 2.8vw, 32px);
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(1rem, 2vw, 1.75rem);
   font-weight: 700;
   line-height: 1.5;
 }
@@ -647,6 +673,7 @@ tbody tr:hover {
 }
 
 .statement-row {
+  flex-wrap: wrap;
   align-items: baseline;
   padding-bottom: 10px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
@@ -658,6 +685,7 @@ tbody tr:hover {
 }
 
 .section-subtotal {
+  flex-wrap: wrap;
   align-items: flex-end;
   margin-top: auto;
   min-height: 56px;
@@ -701,16 +729,24 @@ tbody tr:hover {
 
 .balance-figures {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   margin-top: 20px;
+  justify-items: center;
 }
 
 .balance-figure-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  width: 100%;
+  max-width: min(100%, 22rem);
+  justify-self: center;
   padding: 20px 22px;
   border-radius: 22px;
   background: linear-gradient(135deg, rgba(22, 119, 255, 0.1), rgba(20, 33, 61, 0.06));
   border: 1px solid rgba(15, 23, 42, 0.08);
+  overflow: hidden;
 }
 
 .balance-figure-card span {
@@ -720,7 +756,12 @@ tbody tr:hover {
 }
 
 .balance-figure-card strong {
-  font-size: clamp(24px, 3vw, 34px);
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(1rem, 2vw, 1.75rem);
   line-height: 1.5;
 }
 
@@ -952,12 +993,20 @@ textarea:focus {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
+  justify-items: center;
 }
 
 .summary-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  width: 100%;
+  max-width: min(100%, 18rem);
+  justify-self: center;
   padding: 14px 16px;
   border-radius: 16px;
   background: rgba(22, 119, 255, 0.08);
+  overflow: hidden;
 }
 
 .summary-chip span {
@@ -967,7 +1016,12 @@ textarea:focus {
 }
 
 .summary-chip strong {
-  font-size: 15px;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(0.95rem, 1.8vw, 1.25rem);
   line-height: 1.5;
 }
 
@@ -978,10 +1032,6 @@ textarea:focus {
 }
 
 @media (max-width: 1180px) {
-  .stats-panel {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .company-setup-grid,
   .statement-layout,
   .statement-layout-3,
@@ -1066,10 +1116,6 @@ textarea:focus {
 
 @media (max-width: 640px) {
   .line-item-row {
-    grid-template-columns: 1fr;
-  }
-
-  .stats-panel {
     grid-template-columns: 1fr;
   }
 

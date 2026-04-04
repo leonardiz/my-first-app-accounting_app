@@ -7,6 +7,84 @@ const openingBalanceEquityType = "Equity";
 const systemOpeningBalanceEntryKey = "system-opening-balance-equity";
 const appDisplayName = "LedgrAI";
 const defaultBrandEyebrow = "AI Accounting";
+const currencyCatalog = [
+  { code: "USD", symbol: "$", name: "United States Dollar" },
+  { code: "EUR", symbol: "€", name: "Euro" },
+  { code: "GBP", symbol: "£", name: "British Pound Sterling" },
+  { code: "NGN", symbol: "₦", name: "Nigerian Naira" },
+  { code: "GHS", symbol: "₵", name: "Ghanaian Cedi" },
+  { code: "KES", symbol: "KSh", name: "Kenyan Shilling" },
+  { code: "ZAR", symbol: "R", name: "South African Rand" },
+  { code: "CAD", symbol: "$", name: "Canadian Dollar" },
+  { code: "AUD", symbol: "$", name: "Australian Dollar" },
+  { code: "JPY", symbol: "¥", name: "Japanese Yen" },
+  { code: "CNY", symbol: "¥", name: "Chinese Yuan" },
+  { code: "INR", symbol: "₹", name: "Indian Rupee" },
+  { code: "AED", symbol: "د.إ", name: "UAE Dirham" },
+  { code: "SAR", symbol: "﷼", name: "Saudi Riyal" },
+  { code: "CHF", symbol: "CHF", name: "Swiss Franc" },
+  { code: "SEK", symbol: "kr", name: "Swedish Krona" },
+  { code: "NOK", symbol: "kr", name: "Norwegian Krone" },
+  { code: "DKK", symbol: "kr", name: "Danish Krone" },
+  { code: "NZD", symbol: "$", name: "New Zealand Dollar" },
+  { code: "SGD", symbol: "$", name: "Singapore Dollar" },
+  { code: "HKD", symbol: "$", name: "Hong Kong Dollar" },
+  { code: "MXN", symbol: "$", name: "Mexican Peso" },
+  { code: "BRL", symbol: "R$", name: "Brazilian Real" },
+  { code: "ARS", symbol: "$", name: "Argentine Peso" },
+  { code: "CLP", symbol: "$", name: "Chilean Peso" },
+  { code: "COP", symbol: "$", name: "Colombian Peso" },
+  { code: "PEN", symbol: "S/", name: "Peruvian Sol" },
+  { code: "CZK", symbol: "Kč", name: "Czech Koruna" },
+  { code: "PLN", symbol: "zł", name: "Polish Zloty" },
+  { code: "HUF", symbol: "Ft", name: "Hungarian Forint" },
+  { code: "RON", symbol: "lei", name: "Romanian Leu" },
+  { code: "TRY", symbol: "₺", name: "Turkish Lira" },
+  { code: "RUB", symbol: "₽", name: "Russian Ruble" },
+  { code: "UAH", symbol: "₴", name: "Ukrainian Hryvnia" },
+  { code: "EGP", symbol: "E£", name: "Egyptian Pound" },
+  { code: "MAD", symbol: "د.م.", name: "Moroccan Dirham" },
+  { code: "TND", symbol: "د.ت", name: "Tunisian Dinar" },
+  { code: "UGX", symbol: "USh", name: "Ugandan Shilling" },
+  { code: "TZS", symbol: "TSh", name: "Tanzanian Shilling" },
+  { code: "RWF", symbol: "RF", name: "Rwandan Franc" },
+  { code: "ZMW", symbol: "ZK", name: "Zambian Kwacha" },
+  { code: "XOF", symbol: "CFA", name: "West African CFA Franc" },
+  { code: "XAF", symbol: "FCFA", name: "Central African CFA Franc" },
+  { code: "ETB", symbol: "Br", name: "Ethiopian Birr" },
+  { code: "BWP", symbol: "P", name: "Botswana Pula" },
+  { code: "MUR", symbol: "₨", name: "Mauritian Rupee" },
+  { code: "JMD", symbol: "J$", name: "Jamaican Dollar" },
+  { code: "BBD", symbol: "Bds$", name: "Barbadian Dollar" },
+  { code: "TTD", symbol: "TT$", name: "Trinidad and Tobago Dollar" },
+  { code: "DOP", symbol: "RD$", name: "Dominican Peso" },
+  { code: "CRC", symbol: "₡", name: "Costa Rican Colon" },
+  { code: "GTQ", symbol: "Q", name: "Guatemalan Quetzal" },
+  { code: "HNL", symbol: "L", name: "Honduran Lempira" },
+  { code: "NIO", symbol: "C$", name: "Nicaraguan Cordoba" },
+  { code: "PAB", symbol: "B/.", name: "Panamanian Balboa" },
+  { code: "ILS", symbol: "₪", name: "Israeli New Shekel" },
+  { code: "QAR", symbol: "﷼", name: "Qatari Riyal" },
+  { code: "KWD", symbol: "د.ك", name: "Kuwaiti Dinar" },
+  { code: "BHD", symbol: ".د.ب", name: "Bahraini Dinar" },
+  { code: "OMR", symbol: "﷼", name: "Omani Rial" },
+  { code: "JOD", symbol: "JD", name: "Jordanian Dinar" },
+  { code: "PKR", symbol: "₨", name: "Pakistani Rupee" },
+  { code: "BDT", symbol: "৳", name: "Bangladeshi Taka" },
+  { code: "LKR", symbol: "Rs", name: "Sri Lankan Rupee" },
+  { code: "NPR", symbol: "₨", name: "Nepalese Rupee" },
+  { code: "THB", symbol: "฿", name: "Thai Baht" },
+  { code: "MYR", symbol: "RM", name: "Malaysian Ringgit" },
+  { code: "IDR", symbol: "Rp", name: "Indonesian Rupiah" },
+  { code: "PHP", symbol: "₱", name: "Philippine Peso" },
+  { code: "VND", symbol: "₫", name: "Vietnamese Dong" },
+  { code: "KRW", symbol: "₩", name: "South Korean Won" },
+  { code: "TWD", symbol: "NT$", name: "New Taiwan Dollar" },
+  { code: "MOP", symbol: "MOP$", name: "Macanese Pataca" },
+  { code: "FJD", symbol: "FJ$", name: "Fijian Dollar" },
+  { code: "PGK", symbol: "K", name: "Papua New Guinean Kina" },
+  { code: "ISK", symbol: "kr", name: "Icelandic Krona" },
+];
 
 const defaultAccounts = [
   {
@@ -75,8 +153,9 @@ const elements = {
   companyAddress: document.querySelector("#company-address"),
   companyPhone: document.querySelector("#company-phone"),
   companyEmail: document.querySelector("#company-email"),
-  currencyToggle: document.querySelector("#currency-toggle"),
-  currencyOptions: [...document.querySelectorAll("[data-currency]")],
+  currencySelector: document.querySelector("#currency-selector"),
+  currencyOptionsList: document.querySelector("#currency-options"),
+  currencySelectionHint: document.querySelector("#currency-selection-hint"),
   financialYearStart: document.querySelector("#financial-year-start"),
   companySetupReset: document.querySelector("#company-setup-reset"),
   companySetupGuide: document.querySelector("#company-setup-guide"),
@@ -99,6 +178,9 @@ const elements = {
   trialBalanceTableFoot: document.querySelector("#trial-balance-table-foot"),
   trialBalanceEmptyState: document.querySelector("#trial-balance-empty-state"),
   printTrialBalanceButton: document.querySelector("#print-trial-balance-button"),
+  trialBalanceSection: document.querySelector("#trial-balance-section"),
+  printIncomeStatementButton: document.querySelector("#print-income-statement-button"),
+  incomeStatementSection: document.querySelector("#income-statement-section"),
   incomeTotalRevenue: document.querySelector("#income-total-revenue"),
   incomeGrossProfit: document.querySelector("#income-gross-profit"),
   incomeOperatingExpenses: document.querySelector("#income-operating-expenses"),
@@ -107,6 +189,8 @@ const elements = {
   incomeExpenseList: document.querySelector("#income-expense-list"),
   incomeSummaryBody: document.querySelector("#income-summary-body"),
   incomeStatementEmptyState: document.querySelector("#income-statement-empty-state"),
+  printBalanceSheetButton: document.querySelector("#print-balance-sheet-button"),
+  balanceSheetSection: document.querySelector("#balance-sheet-section"),
   balanceSheetTotalAssets: document.querySelector("#balance-sheet-total-assets"),
   balanceSheetTotalLiabilities: document.querySelector("#balance-sheet-total-liabilities"),
   balanceSheetTotalEquity: document.querySelector("#balance-sheet-total-equity"),
@@ -138,6 +222,8 @@ const elements = {
   cashFlowSummaryBody: document.querySelector("#cash-flow-summary-body"),
   cashFlowStatus: document.querySelector("#cash-flow-status"),
   cashFlowEmptyState: document.querySelector("#cash-flow-empty-state"),
+  printCashFlowButton: document.querySelector("#print-cash-flow-button"),
+  cashFlowSection: document.querySelector("#cash-flow-section"),
   assistantChat: document.querySelector("#assistant-chat"),
   assistantForm: document.querySelector("#assistant-form"),
   assistantInput: document.querySelector("#assistant-input"),
@@ -191,10 +277,22 @@ elements.addLineItemButton.addEventListener("click", addLineItemRow);
 elements.lineItemsList.addEventListener("input", handleLineItemChange);
 elements.lineItemsList.addEventListener("change", handleLineItemChange);
 elements.lineItemsList.addEventListener("click", handleLineItemClick);
-elements.printTrialBalanceButton.addEventListener("click", () => window.print());
+elements.printTrialBalanceButton.addEventListener("click", () =>
+  exportSectionToPdf(elements.trialBalanceSection, "Trial Balance"),
+);
+elements.printIncomeStatementButton.addEventListener("click", () =>
+  exportSectionToPdf(elements.incomeStatementSection, "Income Statement"),
+);
+elements.printBalanceSheetButton.addEventListener("click", () =>
+  exportSectionToPdf(elements.balanceSheetSection, "Balance Sheet"),
+);
+elements.printCashFlowButton.addEventListener("click", () =>
+  exportSectionToPdf(elements.cashFlowSection, "Cash Flow Statement"),
+);
 elements.companySetupForm.addEventListener("submit", handleCompanySetupSubmit);
 elements.companySetupReset.addEventListener("click", resetCompanySetup);
-elements.currencyToggle.addEventListener("click", handleCurrencyToggle);
+elements.currencySelector.addEventListener("change", handleCurrencySelectionInput);
+elements.currencySelector.addEventListener("input", handleCurrencySelectionInput);
 elements.onboardingPrevButton.addEventListener("click", goToPreviousOnboardingStep);
 elements.onboardingNextButton.addEventListener("click", goToNextOnboardingStep);
 elements.journalTableBody.addEventListener("click", handleJournalTableAction);
@@ -206,6 +304,7 @@ elements.journalTableBody.addEventListener("keydown", handleJournalDescriptionKe
   elements.companyAddress,
   elements.companyPhone,
   elements.companyEmail,
+  elements.currencySelector,
   elements.financialYearStart,
 ].forEach((input, index) => {
   input.addEventListener("focus", () => {
@@ -235,6 +334,7 @@ function initializeState() {
   state.currentView = isCompanySetupComplete() ? "chart" : "company-setup";
   state.mobileSidebarOpen = false;
   state.sidebarCollapsed = false;
+  renderCurrencyOptions();
   updateCurrencyFormatter();
   syncAssistantOnboardingMessage();
   saveAccounts();
@@ -287,9 +387,11 @@ function loadCompanySetup() {
   try {
     const parsedSetup = JSON.parse(storedSetup);
     if (parsedSetup && typeof parsedSetup === "object") {
+      const selectedCurrency = getCurrencyMeta(parsedSetup.currency) || getCurrencyMeta(fallback.currency);
       return {
         ...fallback,
         ...parsedSetup,
+        currency: selectedCurrency?.code || fallback.currency,
       };
     }
   } catch {}
@@ -380,6 +482,7 @@ function renderBranding() {
 function renderCompanySetup() {
   const onboardingSteps = getOnboardingSteps();
   const currentStep = onboardingSteps[state.onboardingStepIndex] || onboardingSteps[0];
+  const selectedCurrency = getCurrencyMeta(state.companySetup.currency);
 
   elements.companyName.value = state.companySetup.companyName;
   elements.companyIndustry.value = state.companySetup.industry;
@@ -387,11 +490,11 @@ function renderCompanySetup() {
   elements.companyAddress.value = state.companySetup.address;
   elements.companyPhone.value = state.companySetup.phone;
   elements.companyEmail.value = state.companySetup.email;
+  elements.currencySelector.value = formatCurrencyOptionLabel(selectedCurrency);
+  elements.currencySelectionHint.textContent = selectedCurrency
+    ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
+    : "Search by code, currency name, or symbol.";
   elements.financialYearStart.value = state.companySetup.financialYearStart;
-
-  elements.currencyOptions.forEach((option) => {
-    option.classList.toggle("is-active", option.dataset.currency === state.companySetup.currency);
-  });
 
   elements.onboardingProgressBadge.textContent = `Step ${state.onboardingStepIndex + 1} of ${onboardingSteps.length}`;
   elements.onboardingSubtitle.textContent = currentStep
@@ -435,6 +538,13 @@ function renderCompanySetup() {
 
 function handleCompanySetupSubmit(event) {
   event.preventDefault();
+  const selectedCurrency = resolveCurrencySelection(elements.currencySelector.value);
+  if (!selectedCurrency) {
+    window.alert("Select a valid currency from the global currency list.");
+    elements.currencySelector.focus();
+    return;
+  }
+
   state.companySetup = {
     ...state.companySetup,
     companyName: elements.companyName.value.trim(),
@@ -443,6 +553,7 @@ function handleCompanySetupSubmit(event) {
     address: elements.companyAddress.value.trim(),
     phone: elements.companyPhone.value.trim(),
     email: elements.companyEmail.value.trim(),
+    currency: selectedCurrency.code,
     financialYearStart: elements.financialYearStart.value,
   };
   updateCurrencyFormatter();
@@ -459,16 +570,11 @@ function resetCompanySetup() {
   render();
 }
 
-function handleCurrencyToggle(event) {
-  const button = event.target.closest("[data-currency]");
-  if (!button) {
-    return;
-  }
-
-  state.companySetup.currency = button.dataset.currency;
-  updateCurrencyFormatter();
-  saveCompanySetup();
-  render();
+function handleCurrencySelectionInput() {
+  const selectedCurrency = resolveCurrencySelection(elements.currencySelector.value);
+  elements.currencySelectionHint.textContent = selectedCurrency
+    ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
+    : "Search by code, currency name, or symbol.";
 }
 
 function goToPreviousOnboardingStep() {
@@ -511,9 +617,9 @@ function getOnboardingSteps() {
     },
     {
       title: "Base currency",
-      helper: "Choose NGN or USD. All balances and reports will use this display currency.",
+      helper: "Choose the reporting currency from the global searchable list. All balances and reports will use it.",
       message:
-        "Step 4: Pick the base reporting currency. Use NGN for naira-led books or USD if the company reports in dollars.",
+        "Step 4: Search for the reporting currency you want to use. LedgrAI will apply that symbol and format across the workspace.",
       isComplete: Boolean(state.companySetup.currency),
     },
     {
@@ -539,11 +645,72 @@ function getDefaultCompanySetup() {
   };
 }
 
+function renderCurrencyOptions() {
+  elements.currencyOptionsList.innerHTML = currencyCatalog
+    .map(
+      (currency) =>
+        `<option value="${escapeHtml(formatCurrencyOptionLabel(currency))}"></option>`,
+    )
+    .join("");
+}
+
+function formatCurrencyOptionLabel(currency) {
+  if (!currency) {
+    return "";
+  }
+
+  return `${currency.code} - ${currency.name} (${currency.symbol})`;
+}
+
+function normalizeCurrencyCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function getCurrencyMeta(currencyCode) {
+  const normalizedCode = normalizeCurrencyCode(currencyCode);
+  return currencyCatalog.find((currency) => currency.code === normalizedCode) || null;
+}
+
+function resolveCurrencySelection(rawValue) {
+  const normalizedValue = String(rawValue || "").trim();
+  if (!normalizedValue) {
+    return null;
+  }
+
+  const normalizedCode = normalizeCurrencyCode(normalizedValue.split("-")[0].trim());
+  const byCode = getCurrencyMeta(normalizedCode);
+  if (byCode) {
+    return byCode;
+  }
+
+  const lowerValue = normalizedValue.toLowerCase();
+  return (
+    currencyCatalog.find(
+      (currency) =>
+        currency.name.toLowerCase() === lowerValue ||
+        formatCurrencyOptionLabel(currency).toLowerCase() === lowerValue ||
+        `${currency.code} ${currency.symbol}`.toLowerCase() === lowerValue,
+    ) || null
+  );
+}
+
 function updateCurrencyFormatter() {
-  currencyFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: state.companySetup?.currency || "NGN",
-  });
+  const currencyCode = normalizeCurrencyCode(state.companySetup?.currency || "NGN");
+  try {
+    currencyFormatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode,
+      currencyDisplay: "narrowSymbol",
+    });
+  } catch {
+    currencyFormatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      currencyDisplay: "narrowSymbol",
+    });
+  }
 }
 
 function isCompanySetupComplete() {
@@ -575,6 +742,55 @@ function handleWindowResize() {
     state.mobileSidebarOpen = false;
   }
   syncSidebarState();
+}
+
+function exportSectionToPdf(sectionElement, title) {
+  if (!sectionElement) {
+    return;
+  }
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+  if (!printWindow) {
+    window.alert("Allow pop-ups to export this statement as PDF.");
+    return;
+  }
+
+  const stylesheetUrl = new URL("styles.css", window.location.href).toString();
+  const documentTitle = `${appDisplayName} - ${title}`;
+  const companyName = state.companySetup?.companyName?.trim();
+  const heading = companyName ? `${companyName} · ${title}` : `${appDisplayName} · ${title}`;
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${escapeHtml(documentTitle)}</title>
+        <link rel="stylesheet" href="${stylesheetUrl}" />
+        <style>
+          body { padding: 24px; background: #ffffff; }
+          .print-shell { display: grid; gap: 18px; }
+          .print-heading h1 { margin-bottom: 4px; }
+          .print-heading p { margin: 0; color: #667085; }
+        </style>
+      </head>
+      <body>
+        <div class="print-shell">
+          <div class="print-heading">
+            <h1>${escapeHtml(heading)}</h1>
+            <p>${escapeHtml(new Date().toLocaleString())}</p>
+          </div>
+          ${sectionElement.outerHTML}
+        </div>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.onload = () => {
+    printWindow.print();
+  };
 }
 
 function syncAssistantOnboardingMessage() {

@@ -135,10 +135,18 @@
 
                   <label>
                     <span>Currency</span>
-                    <div class="currency-toggle" id="currency-toggle" role="group" aria-label="Select currency">
-                      <button class="currency-option is-active" type="button" data-currency="NGN">NGN</button>
-                      <button class="currency-option" type="button" data-currency="USD">USD</button>
-                    </div>
+                    <input
+                      id="currency-selector"
+                      name="currencySelector"
+                      type="text"
+                      list="currency-options"
+                      placeholder="Search currency by code, name, or symbol"
+                      autocomplete="off"
+                    />
+                    <datalist id="currency-options"></datalist>
+                    <small class="field-hint" id="currency-selection-hint">
+                      Search by code, currency name, or symbol.
+                    </small>
                   </label>
 
                   <label>
@@ -368,9 +376,14 @@
                 Revenue and expense accounts roll up automatically into gross profit and net income.
               </p>
             </div>
+            <div class="hero-actions">
+              <button class="secondary-button print-hide" id="print-income-statement-button" type="button">
+                Print / Export PDF
+              </button>
+            </div>
           </header>
 
-          <div class="content-grid">
+          <div class="content-grid" id="income-statement-section">
             <section class="panel stats-panel income-stats">
               <div class="stat-card">
                 <span class="stat-label">Revenue</span>
@@ -434,8 +447,13 @@
                 Review closing balances for assets, liabilities, equity, and retained earnings.
               </p>
             </div>
+            <div class="hero-actions">
+              <button class="secondary-button print-hide" id="print-balance-sheet-button" type="button">
+                Print / Export PDF
+              </button>
+            </div>
           </header>
-          <div class="content-grid">
+          <div class="content-grid" id="balance-sheet-section">
             <section class="panel stats-panel income-stats">
               <div class="stat-card">
                 <span class="stat-label">Total Assets</span>
@@ -533,8 +551,13 @@
                 Review operating, investing, and financing cash movements generated from posted journals.
               </p>
             </div>
+            <div class="hero-actions">
+              <button class="secondary-button print-hide" id="print-cash-flow-button" type="button">
+                Print / Export PDF
+              </button>
+            </div>
           </header>
-          <div class="content-grid">
+          <div class="content-grid" id="cash-flow-section">
             <section class="panel stats-panel income-stats">
               <div class="stat-card">
                 <span class="stat-label">Opening Cash</span>
