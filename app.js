@@ -1,6 +1,3 @@
-const accountStorageKey = "chart-of-accounts-records";
-const journalStorageKey = "chart-of-accounts-journal-entries";
-const companySetupStorageKey = "ledgrai-company-setup";
 const openingBalanceEquityCode = "3000";
 const openingBalanceEquityName = "Opening Balance Equity";
 const openingBalanceEquityType = "Equity";
@@ -86,36 +83,13 @@ const currencyCatalog = [
   { code: "ISK", symbol: "kr", name: "Icelandic Krona" },
 ];
 
-const defaultAccounts = [
-  {
-    id: crypto.randomUUID(),
-    code: "1000",
-    name: "Cash at Bank",
-    type: "Asset",
-    openingBalance: 25000,
-  },
-  {
-    id: crypto.randomUUID(),
-    code: "2000",
-    name: "Accounts Payable",
-    type: "Liability",
-    openingBalance: 8200,
-  },
-  {
-    id: crypto.randomUUID(),
-    code: "4000",
-    name: "Service Revenue",
-    type: "Revenue",
-    openingBalance: 12500,
-  },
-];
-
 let currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "NGN",
 });
 
 const state = {
+  currentUser: null,
   accounts: [],
   journalEntries: [],
   companySetup: null,
@@ -127,6 +101,7 @@ const state = {
   mobileSidebarOpen: false,
   assistantMessages: [],
   assistantPending: false,
+  authView: "login",
   onboardingStepIndex: 0,
   balanceSheetSections: {
     currentAssets: true,
@@ -138,12 +113,27 @@ const state = {
 };
 
 const elements = {
+  authShell: document.querySelector("#auth-shell"),
+  authFormError: document.querySelector("#auth-form-error"),
+  showLoginTab: document.querySelector("#show-login-tab"),
+  showRegisterTab: document.querySelector("#show-register-tab"),
+  loginForm: document.querySelector("#login-form"),
+  loginEmail: document.querySelector("#login-email"),
+  loginPassword: document.querySelector("#login-password"),
+  loginSubmitButton: document.querySelector("#login-submit-button"),
+  registerForm: document.querySelector("#register-form"),
+  registerName: document.querySelector("#register-name"),
+  registerEmail: document.querySelector("#register-email"),
+  registerPassword: document.querySelector("#register-password"),
+  registerSubmitButton: document.querySelector("#register-submit-button"),
   appShell: document.querySelector(".app-shell"),
   sidebar: document.querySelector("#sidebar"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   brandNames: [...document.querySelectorAll("[data-brand-name]")],
   brandEyebrows: [...document.querySelectorAll("[data-brand-eyebrow]")],
   pageTitle: document.querySelector("[data-page-title]"),
+  currentUserName: document.querySelector("#current-user-name"),
+  logoutButton: document.querySelector("#logout-button"),
   navItems: [...document.querySelectorAll("[data-view-target]")],
   viewPanels: [...document.querySelectorAll("[data-view]")],
   companySetupForm: document.querySelector("#company-setup-form"),
@@ -262,6 +252,11 @@ const elements = {
 };
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
+elements.showLoginTab.addEventListener("click", () => setAuthView("login"));
+elements.showRegisterTab.addEventListener("click", () => setAuthView("register"));
+elements.loginForm.addEventListener("submit", handleLoginSubmit);
+elements.registerForm.addEventListener("submit", handleRegisterSubmit);
+elements.logoutButton.addEventListener("click", handleLogout);
 elements.addAccountButton.addEventListener("click", () => openAccountDialog());
 elements.cancelAccountButton.addEventListener("click", closeAccountDialog);
 elements.closeAccountDialogButton.addEventListener("click", closeAccountDialog);
@@ -322,96 +317,200 @@ elements.assistantForm.addEventListener("submit", handleAssistantSubmit);
 elements.assistantClearButton.addEventListener("click", clearAssistantChat);
 window.addEventListener("resize", handleWindowResize);
 
-initializeState();
-render();
+bootApplication();
 
-function initializeState() {
-  state.companySetup = loadCompanySetup();
-  state.accounts = loadAccounts();
-  state.accounts = syncOpeningBalanceEquityAccount(state.accounts);
-  state.journalEntries = syncSystemJournalEntry(loadJournalEntries());
+async function bootApplication() {
+  try {
+    renderCurrencyOptions();
+    const session = await fetchCurrentSession();
+    if (!session) {
+      state.currentUser = null;
+      state.companySetup = getDefaultCompanySetup();
+      state.accounts = syncOpeningBalanceEquityAccount([]);
+      state.journalEntries = syncSystemJournalEntry([]);
+      state.assistantMessages = [];
+      render();
+      return;
+    }
+
+    state.currentUser = session.user;
+    await initializeState();
+    render();
+  } catch (error) {
+    state.currentUser = null;
+    state.companySetup = getDefaultCompanySetup();
+    state.accounts = syncOpeningBalanceEquityAccount([]);
+    state.journalEntries = syncSystemJournalEntry([]);
+    showAuthError(error.message);
+    render();
+  }
+}
+
+async function initializeState() {
+  const bootstrap = await apiFetch("/api/bootstrap");
+  state.currentUser = bootstrap.user;
+  state.companySetup = normalizeCompanySetup(bootstrap.company);
+  state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(bootstrap.accounts) ? bootstrap.accounts : []);
+  state.journalEntries = syncSystemJournalEntry(
+    Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
+  );
   state.assistantMessages = [];
   state.currentView = isCompanySetupComplete() ? "chart" : "company-setup";
   state.mobileSidebarOpen = false;
   state.sidebarCollapsed = false;
-  renderCurrencyOptions();
   updateCurrencyFormatter();
   syncAssistantOnboardingMessage();
-  saveAccounts();
-  saveJournalEntries();
-  saveCompanySetup();
 }
 
-function loadAccounts() {
-  const storedAccounts = localStorage.getItem(accountStorageKey);
-
-  if (!storedAccounts) {
-    localStorage.setItem(accountStorageKey, JSON.stringify(defaultAccounts));
-    return defaultAccounts;
-  }
-
+async function fetchCurrentSession() {
   try {
-    const parsedAccounts = JSON.parse(storedAccounts);
-    if (Array.isArray(parsedAccounts)) {
-      return parsedAccounts;
+    const payload = await apiFetch("/auth/me");
+    return {
+      user: payload.user,
+      company: payload.company,
+    };
+  } catch (error) {
+    if (error.status === 401) {
+      return null;
     }
-  } catch {}
-
-  localStorage.setItem(accountStorageKey, JSON.stringify(defaultAccounts));
-  return defaultAccounts;
-}
-
-function loadJournalEntries() {
-  const storedEntries = localStorage.getItem(journalStorageKey);
-
-  if (!storedEntries) {
-    return [];
-  }
-
-  try {
-    const parsedEntries = JSON.parse(storedEntries);
-    return Array.isArray(parsedEntries) ? parsedEntries : [];
-  } catch {
-    return [];
+    throw error;
   }
 }
 
-function loadCompanySetup() {
+async function refreshWorkspaceData() {
+  const payload = await apiFetch("/api/bootstrap");
+  state.currentUser = payload.user;
+  state.companySetup = normalizeCompanySetup(payload.company);
+  state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(payload.accounts) ? payload.accounts : []);
+  state.journalEntries = syncSystemJournalEntry(
+    Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
+  );
+  updateCurrencyFormatter();
+}
+
+async function apiFetch(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || "Request failed.");
+    error.status = response.status;
+    error.payload = payload;
+    if (response.status === 401) {
+      state.currentUser = null;
+      render();
+    }
+    throw error;
+  }
+
+  return payload;
+}
+
+function normalizeCompanySetup(company) {
   const fallback = getDefaultCompanySetup();
-  const storedSetup = localStorage.getItem(companySetupStorageKey);
+  const selectedCurrency = getCurrencyMeta(company?.currency) || getCurrencyMeta(fallback.currency);
+  return {
+    ...fallback,
+    ...(company || {}),
+    currency: selectedCurrency?.code || fallback.currency,
+  };
+}
 
-  if (!storedSetup) {
-    return fallback;
-  }
+function setAuthView(viewName) {
+  state.authView = viewName;
+  hideAuthError();
+  renderAuthState();
+}
+
+function renderAuthState() {
+  const authenticated = Boolean(state.currentUser);
+  elements.authShell.classList.toggle("hidden", authenticated);
+  elements.appShell.classList.toggle("hidden", !authenticated);
+  elements.loginForm.classList.toggle("hidden", state.authView !== "login");
+  elements.registerForm.classList.toggle("hidden", state.authView !== "register");
+  elements.showLoginTab.classList.toggle("is-active", state.authView === "login");
+  elements.showRegisterTab.classList.toggle("is-active", state.authView === "register");
+  elements.currentUserName.textContent = state.currentUser?.name || "Account";
+}
+
+function showAuthError(message) {
+  elements.authFormError.textContent = message;
+  elements.authFormError.classList.remove("hidden");
+}
+
+function hideAuthError() {
+  elements.authFormError.textContent = "";
+  elements.authFormError.classList.add("hidden");
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  hideAuthError();
 
   try {
-    const parsedSetup = JSON.parse(storedSetup);
-    if (parsedSetup && typeof parsedSetup === "object") {
-      const selectedCurrency = getCurrencyMeta(parsedSetup.currency) || getCurrencyMeta(fallback.currency);
-      return {
-        ...fallback,
-        ...parsedSetup,
-        currency: selectedCurrency?.code || fallback.currency,
-      };
-    }
+    await apiFetch("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        email: elements.loginEmail.value.trim(),
+        password: elements.loginPassword.value,
+      }),
+    });
+    elements.loginForm.reset();
+    await initializeState();
+    render();
+  } catch (error) {
+    showAuthError(error.message);
+  }
+}
+
+async function handleRegisterSubmit(event) {
+  event.preventDefault();
+  hideAuthError();
+
+  try {
+    await apiFetch("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        name: elements.registerName.value.trim(),
+        email: elements.registerEmail.value.trim(),
+        password: elements.registerPassword.value,
+      }),
+    });
+    elements.registerForm.reset();
+    await initializeState();
+    render();
+  } catch (error) {
+    showAuthError(error.message);
+  }
+}
+
+async function handleLogout() {
+  try {
+    await apiFetch("/auth/logout", { method: "POST" });
   } catch {}
 
-  return fallback;
-}
-
-function saveAccounts() {
-  localStorage.setItem(accountStorageKey, JSON.stringify(state.accounts));
-}
-
-function saveJournalEntries() {
-  localStorage.setItem(journalStorageKey, JSON.stringify(state.journalEntries));
-}
-
-function saveCompanySetup() {
-  localStorage.setItem(companySetupStorageKey, JSON.stringify(state.companySetup));
+  state.currentUser = null;
+  state.accounts = [];
+  state.journalEntries = [];
+  state.companySetup = getDefaultCompanySetup();
+  state.assistantMessages = [];
+  state.authView = "login";
+  render();
 }
 
 function render() {
+  renderAuthState();
+  if (!state.currentUser) {
+    return;
+  }
+
   renderNavigation();
   renderBranding();
   renderCompanySetup();
@@ -536,7 +635,7 @@ function renderCompanySetup() {
     state.onboardingStepIndex === onboardingSteps.length - 1 ? "Finish Setup" : "Next Step";
 }
 
-function handleCompanySetupSubmit(event) {
+async function handleCompanySetupSubmit(event) {
   event.preventDefault();
   const selectedCurrency = resolveCurrencySelection(elements.currencySelector.value);
   if (!selectedCurrency) {
@@ -545,7 +644,7 @@ function handleCompanySetupSubmit(event) {
     return;
   }
 
-  state.companySetup = {
+  const payload = {
     ...state.companySetup,
     companyName: elements.companyName.value.trim(),
     industry: elements.companyIndustry.value.trim(),
@@ -556,18 +655,35 @@ function handleCompanySetupSubmit(event) {
     currency: selectedCurrency.code,
     financialYearStart: elements.financialYearStart.value,
   };
-  updateCurrencyFormatter();
-  saveCompanySetup();
-  syncAssistantOnboardingMessage();
-  render();
+
+  try {
+    const response = await apiFetch("/api/company", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    state.companySetup = normalizeCompanySetup(response.company);
+    updateCurrencyFormatter();
+    syncAssistantOnboardingMessage();
+    render();
+  } catch (error) {
+    window.alert(error.message);
+  }
 }
 
-function resetCompanySetup() {
+async function resetCompanySetup() {
   state.companySetup = getDefaultCompanySetup();
   state.onboardingStepIndex = 0;
-  updateCurrencyFormatter();
-  saveCompanySetup();
-  render();
+  try {
+    const response = await apiFetch("/api/company", {
+      method: "PUT",
+      body: JSON.stringify(state.companySetup),
+    });
+    state.companySetup = normalizeCompanySetup(response.company);
+    updateCurrencyFormatter();
+    render();
+  } catch (error) {
+    window.alert(error.message);
+  }
 }
 
 function handleCurrencySelectionInput() {
@@ -1331,7 +1447,7 @@ async function handleAssistantSubmit(event) {
 
   state.assistantMessages.push({ role: "user", content: prompt });
   state.assistantPending = true;
-  elements.assistantStatus.textContent = "Sending financial context to Claude...";
+  elements.assistantStatus.textContent = "Sending financial context to the AI assistant...";
   elements.assistantStatus.classList.remove("is-unbalanced");
   elements.assistantStatus.classList.remove("is-balanced");
   elements.assistantInput.value = "";
@@ -1399,7 +1515,7 @@ function handleBalanceSheetToggle(event) {
   renderBalanceSheet();
 }
 
-function handleAccountTableAction(event) {
+async function handleAccountTableAction(event) {
   const { action, id } = event.currentTarget.dataset;
   const account = state.accounts.find((entry) => entry.id === id);
 
@@ -1436,16 +1552,17 @@ function handleAccountTableAction(event) {
       return;
     }
 
-    state.accounts = state.accounts.filter((entry) => entry.id !== id);
-    state.accounts = syncOpeningBalanceEquityAccount(state.accounts);
-    state.journalEntries = syncSystemJournalEntry(state.journalEntries);
-    saveAccounts();
-    saveJournalEntries();
-    render();
+    try {
+      await apiFetch(`/api/accounts/${id}`, { method: "DELETE" });
+      await refreshWorkspaceData();
+      render();
+    } catch (error) {
+      window.alert(error.message);
+    }
   }
 }
 
-function handleJournalTableAction(event) {
+async function handleJournalTableAction(event) {
   const button = event.target.closest("[data-action]");
   if (!button) {
     return;
@@ -1486,12 +1603,21 @@ function handleJournalTableAction(event) {
       return;
     }
 
-    state.journalEntries = state.journalEntries.map((item) =>
-      item.id === id ? { ...item, description: nextDescription } : item,
-    );
-    state.editingJournalDescriptionId = null;
-    saveJournalEntries();
-    render();
+    try {
+      await apiFetch(`/api/journal-entries/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          date: entry.date,
+          description: nextDescription,
+          lineItems: entry.lineItems,
+        }),
+      });
+      state.editingJournalDescriptionId = null;
+      await refreshWorkspaceData();
+      render();
+    } catch (error) {
+      window.alert(error.message);
+    }
     return;
   }
 
@@ -1512,10 +1638,13 @@ function handleJournalTableAction(event) {
       return;
     }
 
-    state.journalEntries = state.journalEntries.filter((item) => item.id !== id);
-    state.journalEntries = syncSystemJournalEntry(state.journalEntries);
-    saveJournalEntries();
-    render();
+    try {
+      await apiFetch(`/api/journal-entries/${id}`, { method: "DELETE" });
+      await refreshWorkspaceData();
+      render();
+    } catch (error) {
+      window.alert(error.message);
+    }
   }
 }
 
@@ -1567,7 +1696,7 @@ function resetAccountForm() {
   hideAccountError();
 }
 
-function handleAccountSubmit(event) {
+async function handleAccountSubmit(event) {
   event.preventDefault();
 
   const payload = {
@@ -1591,26 +1720,25 @@ function handleAccountSubmit(event) {
     return;
   }
 
-  if (state.editingAccountId) {
-    state.accounts = state.accounts.map((account) =>
-      account.id === state.editingAccountId ? { ...account, ...payload } : account,
-    );
-  } else {
-    state.accounts = [
-      ...state.accounts,
-      {
-        id: crypto.randomUUID(),
-        ...payload,
-      },
-    ];
-  }
+  try {
+    if (state.editingAccountId) {
+      await apiFetch(`/api/accounts/${state.editingAccountId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await apiFetch("/api/accounts", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
 
-  state.accounts = syncOpeningBalanceEquityAccount(state.accounts);
-  state.journalEntries = syncSystemJournalEntry(state.journalEntries);
-  saveAccounts();
-  saveJournalEntries();
-  render();
-  closeAccountDialog();
+    await refreshWorkspaceData();
+    render();
+    closeAccountDialog();
+  } catch (error) {
+    showAccountError(error.message);
+  }
 }
 
 function openJournalDialog(entry) {
@@ -1714,7 +1842,7 @@ function refreshJournalSummary() {
   elements.journalBalanceStatus.textContent = totals.balanced ? "Balanced" : "Not Balanced";
 }
 
-function handleJournalSubmit(event) {
+async function handleJournalSubmit(event) {
   event.preventDefault();
 
   const date = elements.journalDate.value;
@@ -1759,24 +1887,25 @@ function handleJournalSubmit(event) {
     lineItems,
   };
 
-  if (state.editingJournalId) {
-    state.journalEntries = state.journalEntries.map((entry) =>
-      entry.id === state.editingJournalId ? { ...entry, ...payload } : entry,
-    );
-  } else {
-    state.journalEntries = [
-      ...state.journalEntries,
-      {
-        id: crypto.randomUUID(),
-        ...payload,
-      },
-    ];
-  }
+  try {
+    if (state.editingJournalId) {
+      await apiFetch(`/api/journal-entries/${state.editingJournalId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await apiFetch("/api/journal-entries", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
 
-  state.journalEntries = syncSystemJournalEntry(state.journalEntries);
-  saveJournalEntries();
-  render();
-  closeJournalDialog();
+    await refreshWorkspaceData();
+    render();
+    closeJournalDialog();
+  } catch (error) {
+    showJournalError(error.message);
+  }
 }
 
 function collectLineItemsFromForm({ skipValidation = false } = {}) {

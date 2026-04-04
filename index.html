@@ -13,7 +13,67 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <section class="auth-shell" id="auth-shell">
+      <div class="auth-card panel">
+        <div class="auth-brand">
+          <p class="eyebrow">LedgrAI</p>
+          <h1>Sign in to your workspace</h1>
+          <p class="hero-copy">
+            Secure access to your books, financial statements, and AI assistant.
+          </p>
+        </div>
+
+        <div class="auth-tabs" role="tablist" aria-label="Authentication views">
+          <button class="auth-tab is-active" id="show-login-tab" type="button">Login</button>
+          <button class="auth-tab" id="show-register-tab" type="button">Register</button>
+        </div>
+
+        <p class="form-error hidden" id="auth-form-error"></p>
+
+        <form class="auth-form" id="login-form">
+          <label>
+            <span>Email</span>
+            <input id="login-email" name="loginEmail" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input
+              id="login-password"
+              name="loginPassword"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+          <button class="primary-button" id="login-submit-button" type="submit">Login</button>
+        </form>
+
+        <form class="auth-form hidden" id="register-form">
+          <label>
+            <span>Full Name</span>
+            <input id="register-name" name="registerName" type="text" autocomplete="name" required />
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="register-email" name="registerEmail" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input
+              id="register-password"
+              name="registerPassword"
+              type="password"
+              autocomplete="new-password"
+              minlength="8"
+              required
+            />
+          </label>
+          <button class="primary-button" id="register-submit-button" type="submit">Create Account</button>
+        </form>
+      </div>
+    </section>
+
+    <div class="app-shell hidden" id="app-shell">
       <button
         class="sidebar-toggle"
         id="sidebar-toggle"
@@ -73,11 +133,19 @@
 
       <main class="main-shell">
         <section class="page-header panel">
-          <p class="eyebrow" data-brand-eyebrow>AI Accounting</p>
-          <h2 data-page-title>LedgrAI Workspace</h2>
-          <p class="hero-copy">
-            Navigate setup, bookkeeping, reporting, and AI support from one connected workspace.
-          </p>
+          <div class="page-header-content">
+            <div>
+              <p class="eyebrow" data-brand-eyebrow>AI Accounting</p>
+              <h2 data-page-title>LedgrAI Workspace</h2>
+              <p class="hero-copy">
+                Navigate setup, bookkeeping, reporting, and AI support from one connected workspace.
+              </p>
+            </div>
+            <div class="page-header-actions">
+              <span class="user-badge" id="current-user-name">Account</span>
+              <button class="secondary-button" id="logout-button" type="button">Logout</button>
+            </div>
+          </div>
         </section>
 
         <div class="view-stack">
