@@ -624,6 +624,7 @@ async function loadCitiesForState(countryName, stateName) {
   };
 
   try {
+    console.log("Fetching cities", requestPayload);
     const response = await fetch("https://countriesnow.space/api/v0.1/countries/state/cities", {
       method: "POST",
       headers: {
@@ -632,10 +633,15 @@ async function loadCitiesForState(countryName, stateName) {
       body: JSON.stringify(requestPayload),
     });
     const payload = await response.json();
-    const cities = Array.isArray(payload?.data) ? payload.data.map((city) => String(city).trim()).filter(Boolean) : [];
-    state.locationOptions.citiesByState.set(cacheKey, cities);
+    console.log("Cities response", payload);
+    const cities =
+      Array.isArray(payload?.data) && payload.data.length
+        ? payload.data.map((city) => String(city).trim()).filter(Boolean)
+        : [];
+    const finalCities = cities.length ? cities : [stateName];
+    state.locationOptions.citiesByState.set(cacheKey, finalCities);
     renderLocationOptions();
-    return cities;
+    return finalCities;
   } catch {
     try {
       const fallbackUrl = new URL("https://countriesnow.space/api/v0.1/countries/state/cities");
@@ -643,12 +649,14 @@ async function loadCitiesForState(countryName, stateName) {
       fallbackUrl.searchParams.set("state", normalizedState);
       const response = await fetch(fallbackUrl.toString());
       const payload = await response.json();
-      const cities = Array.isArray(payload?.data)
-        ? payload.data.map((city) => String(city).trim()).filter(Boolean)
-        : [];
-      state.locationOptions.citiesByState.set(cacheKey, cities);
+      const cities =
+        Array.isArray(payload?.data) && payload.data.length
+          ? payload.data.map((city) => String(city).trim()).filter(Boolean)
+          : [];
+      const finalCities = cities.length ? cities : [stateName];
+      state.locationOptions.citiesByState.set(cacheKey, finalCities);
       renderLocationOptions();
-      return cities;
+      return finalCities;
     } catch {
       return [];
     }
