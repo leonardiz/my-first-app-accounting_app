@@ -434,9 +434,13 @@ elements.assistantClearButton.addEventListener("click", clearAssistantChat);
 window.addEventListener("resize", handleWindowResize);
 
 document.addEventListener("DOMContentLoaded", async () => {
-  renderCurrencyOptions();
-  await loadCountries();
-  bootApplication();
+  try {
+    renderCurrencyOptions();
+    await loadCountries();
+    bootApplication();
+  } catch (error) {
+    console.error("Initialization failed:", error);
+  }
 });
 
 async function bootApplication() {
