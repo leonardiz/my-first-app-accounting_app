@@ -486,6 +486,7 @@ async function initializeState() {
   updateCurrencyFormatter();
   syncAssistantOnboardingMessage();
   await ensureLocationSelectionsLoaded();
+  syncCompanySetupFields();
 }
 
 async function fetchCurrentSession() {
@@ -898,19 +899,10 @@ function renderCompanySetup() {
   elements.companyIndustry.value = state.companySetup.industry;
   elements.companyBusinessType.value = state.companySetup.businessType;
   elements.companyAddress.value = state.companySetup.address;
-  elements.companyPhone.value = state.companySetup.phone;
-  elements.companyEmail.value = state.companySetup.email;
-  elements.companyCountry.value = state.companySetup.country;
-  elements.companyState.value = state.companySetup.stateProvince;
-  elements.companyCity.value = state.companySetup.city;
-  elements.currencySelect.value = selectedCurrency?.code || "";
-  if (elements.currencySelectionHint) {
-    elements.currencySelectionHint.textContent = selectedCurrency
-      ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
-      : "Select a currency that matches your reporting preference.";
-  }
+  elements.currencySelectionHint.textContent = selectedCurrency
+    ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
+    : "Select a currency that matches your reporting preference.";
   elements.financialYearStart.value = state.companySetup.financialYearStart;
-  renderLocationOptions();
 
   elements.onboardingProgressBadge.textContent = `Step ${state.onboardingStepIndex + 1} of ${onboardingSteps.length}`;
   elements.onboardingSubtitle.textContent = currentStep
@@ -955,6 +947,50 @@ function renderCompanySetup() {
     state.onboardingStepIndex === onboardingSteps.length - 1 ? "Finish Setup" : "Next Step";
 }
 
+function syncCompanySetupFields() {
+  if (!state.companySetup || !elements.companySetupForm) {
+    return;
+  }
+
+  const company = state.companySetup;
+  if (elements.companyName) {
+    elements.companyName.value = company.companyName || "";
+  }
+  if (elements.companyIndustry) {
+    elements.companyIndustry.value = company.industry || "";
+  }
+  if (elements.companyBusinessType) {
+    elements.companyBusinessType.value = company.businessType || "";
+  }
+  if (elements.companyAddress) {
+    elements.companyAddress.value = company.address || "";
+  }
+  if (elements.companyPhone) {
+    elements.companyPhone.value = company.phone || "";
+  }
+  if (elements.companyEmail) {
+    elements.companyEmail.value = company.email || "";
+  }
+  renderLocationOptions();
+  if (elements.companyCountry) {
+    elements.companyCountry.value = company.country || "";
+  }
+  if (elements.companyState) {
+    elements.companyState.value = company.stateProvince || "";
+  }
+  if (elements.companyCity) {
+    elements.companyCity.value = company.city || "";
+  }
+  const selectedCurrency = getCurrencyMeta(company.currency);
+  if (elements.currencySelect) {
+    elements.currencySelect.value = selectedCurrency?.code || "";
+  }
+  handleCurrencySelectionInput();
+  if (elements.financialYearStart) {
+    elements.financialYearStart.value = company.financialYearStart || "";
+  }
+}
+
 async function handleCompanySetupSubmit(event) {
   event.preventDefault();
   const selectedCurrency = resolveCurrencySelection(elements.currencySelect.value);
@@ -986,6 +1022,7 @@ async function handleCompanySetupSubmit(event) {
     });
     state.companySetup = normalizeCompanySetup(response.company);
     updateCurrencyFormatter();
+    syncCompanySetupFields();
     syncAssistantOnboardingMessage();
     render();
   } catch (error) {
@@ -1003,6 +1040,7 @@ async function resetCompanySetup() {
     });
     state.companySetup = normalizeCompanySetup(response.company);
     updateCurrencyFormatter();
+    syncCompanySetupFields();
     render();
   } catch (error) {
     window.alert(error.message);

@@ -238,7 +238,13 @@
                 <div class="form-grid">
                   <label>
                     <span>Company Name</span>
-                    <input id="company-name" name="companyName" type="text" placeholder="Victor Ventures Ltd" />
+                    <input
+                      id="company-name"
+                      name="companyName"
+                      type="text"
+                      placeholder="Victor Ventures Ltd"
+                      autocomplete="organization"
+                    />
                   </label>
 
                   <label>
@@ -253,17 +259,35 @@
 
                   <label class="full-span">
                     <span>Address</span>
-                    <input id="company-address" name="address" type="text" placeholder="12 Marina Road, Lagos" />
+                    <input
+                      id="company-address"
+                      name="address"
+                      type="text"
+                      placeholder="12 Marina Road, Lagos"
+                      autocomplete="street-address"
+                    />
                   </label>
 
                   <label>
                     <span>Phone</span>
-                    <input id="company-phone" name="phone" type="tel" placeholder="+234 800 000 0000" />
+                    <input
+                      id="company-phone"
+                      name="phone"
+                      type="tel"
+                      placeholder="+234 800 000 0000"
+                      autocomplete="tel"
+                    />
                   </label>
 
                   <label>
                     <span>Email</span>
-                    <input id="company-email" name="email" type="email" placeholder="finance@company.com" />
+                    <input
+                      id="company-email"
+                      name="email"
+                      type="email"
+                      placeholder="finance@company.com"
+                      autocomplete="email"
+                    />
                   </label>
 
                   <label>
@@ -274,12 +298,17 @@
 
                   <label>
                     <span>Country</span>
-                    <select id="company-country" name="country" class="app-select"></select>
+                    <select id="company-country" name="country" class="app-select" autocomplete="country-name"></select>
                   </label>
 
                   <label>
                     <span>State / Province</span>
-                    <select id="company-state" name="stateProvince" class="app-select"></select>
+                    <select
+                      id="company-state"
+                      name="stateProvince"
+                      class="app-select"
+                      autocomplete="address-level1"
+                    ></select>
                   </label>
 
                   <label>
