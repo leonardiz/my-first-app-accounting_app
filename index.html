@@ -35,7 +35,7 @@
 
         <p class="form-error hidden" id="auth-form-error"></p>
 
-        <form class="auth-form" id="login-form">
+        <form class="auth-form" id="login-form" method="post">
           <label>
             <span>Email</span>
             <input id="login-email" name="loginEmail" type="email" autocomplete="email" required />
@@ -53,7 +53,7 @@
           <button class="primary-button" id="login-submit-button" type="submit">Login</button>
         </form>
 
-        <form class="auth-form hidden" id="register-form">
+        <form class="auth-form hidden" id="register-form" method="post">
           <label>
             <span>Full Name</span>
             <input id="register-name" name="registerName" type="text" autocomplete="name" required />

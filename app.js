@@ -1379,7 +1379,8 @@ function renderAccountsTable() {
           <button class="ghost-button danger" type="button" data-action="delete-account" data-id="${account.id}">Delete</button>
         </div>
       </td>
-    `;
+    `,
+    );
     elements.accountsTableBody.appendChild(row);
   });
 
@@ -1469,7 +1470,8 @@ function renderJournalTable() {
           }
         </div>
       </td>
-    `;
+    `,
+    );
     elements.journalTableBody.appendChild(row);
   });
 }
@@ -1560,7 +1562,8 @@ function renderGeneralLedger() {
           <strong>${escapeHtml(formatLedgerBalance(ledger.closingBalance, ledger.account.type))}</strong>
         </div>
       </div>
-    `;
+    `,
+    );
     elements.ledgerList.appendChild(card);
   });
 }
@@ -1590,7 +1593,8 @@ function renderTrialBalance() {
       <td class="numeric">${escapeHtml(currencyFormatter.format(row.totalCredits))}</td>
       <td class="numeric">${escapeHtml(row.closingDebit > 0 ? currencyFormatter.format(row.closingDebit) : "-")}</td>
       <td class="numeric">${escapeHtml(row.closingCredit > 0 ? currencyFormatter.format(row.closingCredit) : "-")}</td>
-    `;
+    `,
+    );
     elements.trialBalanceTableBody.appendChild(tableRow);
   });
 
@@ -1603,7 +1607,8 @@ function renderTrialBalance() {
     <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalCredits))}</td>
     <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingDebits))}</td>
     <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingCredits))}</td>
-  `;
+  `,
+  );
   elements.trialBalanceTableFoot.appendChild(totalsRow);
 
   const statusRow = document.createElement("tr");
@@ -1616,7 +1621,8 @@ function renderTrialBalance() {
         Closing balances are ${report.closingBalanced ? "balanced" : "not balanced"}.
       </div>
     </td>
-  `;
+  `,
+  );
   elements.trialBalanceTableFoot.appendChild(statusRow);
 }
 
@@ -2247,7 +2253,9 @@ function addLineItemRow(line = createEmptyLineItem()) {
       <input class="line-credit" type="number" min="0" step="0.01" value="${line.credit || ""}" />
     </label>
     <button class="line-remove-button" type="button">Remove</button>
-  `;
+  `,
+  );
+  `);`
   elements.lineItemsList.appendChild(row);
   refreshJournalSummary();
 }
@@ -2973,7 +2981,8 @@ function renderBalanceSheetSectionGroup(container, label, sectionKey, rows) {
       <span>${escapeHtml(label)}</span>
       <span>${escapeHtml(currencyFormatter.format(subtotal))} ${expanded ? "−" : "+"}</span>
     </button>
-  `;
+  `,
+  );
 
   const body = document.createElement("div");
   body.className = "balance-subsection-body";
