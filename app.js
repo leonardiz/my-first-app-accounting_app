@@ -197,7 +197,6 @@ const state = {
   locationOptions: {
     countries: [],
     statesByCountry: new Map(),
-    citiesByState: new Map(),
   },
   balanceSheetSections: {
     currentAssets: true,
@@ -394,7 +393,7 @@ elements.companySetupReset.addEventListener("click", resetCompanySetup);
 elements.currencySelect.addEventListener("change", handleCurrencySelectionInput);
 elements.companyCountry.addEventListener("change", handleCountrySelectionInput);
 elements.companyState.addEventListener("change", handleStateSelectionInput);
-elements.companyCity.addEventListener("change", handleCitySelectionInput);
+elements.companyCity.addEventListener("input", handleCityInput);
 elements.setupBanners.forEach((banner) => {
   banner.querySelector("[data-dismiss-setup-banner]")?.addEventListener("click", () => {
     state.setupBannerDismissed = true;
@@ -606,83 +605,18 @@ async function loadStatesForCountry(countryName) {
   }
 }
 
-async function loadCitiesForState(countryName, stateName) {
-  const normalizedCountry = String(countryName || "").trim();
-  const normalizedState = String(stateName || "").trim();
-  if (!normalizedCountry || !normalizedState) {
-    return [];
-  }
-
-  const cacheKey = `${normalizedCountry}::${normalizedState}`;
-  if (state.locationOptions.citiesByState.has(cacheKey)) {
-    return state.locationOptions.citiesByState.get(cacheKey);
-  }
-
-  const requestPayload = {
-    country: normalizedCountry,
-    state: normalizedState,
-  };
-
-  try {
-    console.log("Fetching cities", requestPayload);
-    const response = await fetch("https://countriesnow.space/api/v0.1/countries/state/cities", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestPayload),
-    });
-    const payload = await response.json();
-    console.log("Cities response", payload);
-    const cities =
-      Array.isArray(payload?.data) && payload.data.length
-        ? payload.data.map((city) => String(city).trim()).filter(Boolean)
-        : [];
-    const finalCities = cities.length ? cities : [stateName];
-    state.locationOptions.citiesByState.set(cacheKey, finalCities);
-    renderLocationOptions();
-    return finalCities;
-  } catch {
-    try {
-      const fallbackUrl = new URL("https://countriesnow.space/api/v0.1/countries/state/cities");
-      fallbackUrl.searchParams.set("country", normalizedCountry);
-      fallbackUrl.searchParams.set("state", normalizedState);
-      const response = await fetch(fallbackUrl.toString());
-      const payload = await response.json();
-      const cities =
-        Array.isArray(payload?.data) && payload.data.length
-          ? payload.data.map((city) => String(city).trim()).filter(Boolean)
-          : [];
-      const finalCities = cities.length ? cities : [stateName];
-      state.locationOptions.citiesByState.set(cacheKey, finalCities);
-      renderLocationOptions();
-      return finalCities;
-    } catch {
-      return [];
-    }
-  }
-}
-
 async function ensureLocationSelectionsLoaded() {
   await loadCountries();
   if (state.companySetup.country) {
     await loadStatesForCountry(state.companySetup.country);
   }
-  if (state.companySetup.country && state.companySetup.stateProvince) {
-    await loadCitiesForState(state.companySetup.country, state.companySetup.stateProvince);
-  }
 }
-
 function renderLocationOptions() {
   updateSelectOptions(elements.companyCountry, state.locationOptions.countries, "Select a country");
 
   const countryKey = normalizeString(state.companySetup.country);
   const states = state.locationOptions.statesByCountry.get(countryKey) || [];
   updateSelectOptions(elements.companyState, states, "Select a state / province");
-
-  const cityCacheKey = `${countryKey}::${normalizeString(state.companySetup.stateProvince)}`;
-  const cities = state.locationOptions.citiesByState.get(cityCacheKey) || [];
-  updateSelectOptions(elements.companyCity, cities, "Select a city");
 }
 
 function getSuggestedCurrencyForCountry(countryName) {
@@ -1106,16 +1040,15 @@ async function handleCountrySelectionInput() {
   }
 }
 
-async function handleStateSelectionInput() {
+function handleStateSelectionInput() {
   const stateName = elements.companyState.value.trim();
   state.companySetup.stateProvince = stateName;
   state.companySetup.city = "";
   elements.companyCity.value = "";
-  await loadCitiesForState(elements.companyCountry.value.trim(), stateName);
   renderLocationOptions();
 }
 
-function handleCitySelectionInput() {
+function handleCityInput() {
   state.companySetup.city = elements.companyCity.value.trim();
 }
 
