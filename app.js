@@ -243,6 +243,7 @@ const elements = {
   companyIndustry: document.querySelector("#company-industry"),
   companyBusinessType: document.querySelector("#company-business-type"),
   companyAddress: document.querySelector("#company-address"),
+  companyAddressLine1: document.querySelector("#company-address-line1"),
   companyPhone: document.querySelector("#company-phone"),
   companyEmail: document.querySelector("#company-email"),
   currencySelect: document.querySelector("#currency-select"),
@@ -404,24 +405,6 @@ elements.onboardingPrevButton.addEventListener("click", goToPreviousOnboardingSt
 elements.onboardingNextButton.addEventListener("click", goToNextOnboardingStep);
 elements.journalTableBody.addEventListener("click", handleJournalTableAction);
 elements.journalTableBody.addEventListener("keydown", handleJournalDescriptionKeydown);
-[
-  elements.companyName,
-  elements.companyIndustry,
-  elements.companyBusinessType,
-  elements.companyAddress,
-  elements.companyPhone,
-  elements.companyEmail,
-  elements.currencySelect,
-  elements.companyCountry,
-  elements.companyState,
-  elements.companyCity,
-  elements.financialYearStart,
-].forEach((input, index) => {
-  input.addEventListener("focus", () => {
-    state.onboardingStepIndex = Math.min(index, getOnboardingSteps().length - 1);
-    renderCompanySetup();
-  });
-});
 elements.navItems.forEach((item) =>
   item.addEventListener("click", () => setActiveView(item.dataset.viewTarget)),
 );
@@ -895,14 +878,9 @@ function renderCompanySetup() {
   const currentStep = onboardingSteps[state.onboardingStepIndex] || onboardingSteps[0];
   const selectedCurrency = getCurrencyMeta(state.companySetup.currency);
 
-  elements.companyName.value = state.companySetup.companyName;
-  elements.companyIndustry.value = state.companySetup.industry;
-  elements.companyBusinessType.value = state.companySetup.businessType;
-  elements.companyAddress.value = state.companySetup.address;
   elements.currencySelectionHint.textContent = selectedCurrency
     ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
     : "Select a currency that matches your reporting preference.";
-  elements.financialYearStart.value = state.companySetup.financialYearStart;
 
   elements.onboardingProgressBadge.textContent = `Step ${state.onboardingStepIndex + 1} of ${onboardingSteps.length}`;
   elements.onboardingSubtitle.textContent = currentStep
@@ -965,6 +943,9 @@ function syncCompanySetupFields() {
   if (elements.companyAddress) {
     elements.companyAddress.value = company.address || "";
   }
+  if (elements.companyAddressLine1) {
+    elements.companyAddressLine1.value = company.address || "";
+  }
   if (elements.companyPhone) {
     elements.companyPhone.value = company.phone || "";
   }
@@ -994,6 +975,8 @@ function syncCompanySetupFields() {
 async function handleCompanySetupSubmit(event) {
   event.preventDefault();
   const selectedCurrency = resolveCurrencySelection(elements.currencySelect.value);
+  const submittedAddress =
+    elements.companyAddress.value.trim() || elements.companyAddressLine1?.value.trim() || "";
   if (!selectedCurrency) {
     window.alert("Select a valid currency from the global currency list.");
     elements.currencySelect.focus();
@@ -1005,7 +988,7 @@ async function handleCompanySetupSubmit(event) {
     companyName: elements.companyName.value.trim(),
     industry: elements.companyIndustry.value.trim(),
     businessType: elements.companyBusinessType.value.trim(),
-    address: elements.companyAddress.value.trim(),
+    address: submittedAddress,
     phone: elements.companyPhone.value.trim(),
     email: elements.companyEmail.value.trim(),
     currency: selectedCurrency.code,
