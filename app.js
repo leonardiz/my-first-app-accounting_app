@@ -243,7 +243,6 @@ const elements = {
   companyIndustry: document.querySelector("#company-industry"),
   companyBusinessType: document.querySelector("#company-business-type"),
   companyAddress: document.querySelector("#company-address"),
-  companyAddressLine1: document.querySelector("#company-address-line1"),
   companyPhone: document.querySelector("#company-phone"),
   companyEmail: document.querySelector("#company-email"),
   currencySelect: document.querySelector("#currency-select"),
@@ -943,9 +942,6 @@ function syncCompanySetupFields() {
   if (elements.companyAddress) {
     elements.companyAddress.value = company.address || "";
   }
-  if (elements.companyAddressLine1) {
-    elements.companyAddressLine1.value = company.address || "";
-  }
   if (elements.companyPhone) {
     elements.companyPhone.value = company.phone || "";
   }
@@ -974,9 +970,18 @@ function syncCompanySetupFields() {
 
 async function handleCompanySetupSubmit(event) {
   event.preventDefault();
-  const selectedCurrency = resolveCurrencySelection(elements.currencySelect.value);
-  const submittedAddress =
-    elements.companyAddress.value.trim() || elements.companyAddressLine1?.value.trim() || "";
+  const companyNameInput = document.getElementById("company-name");
+  const industryInput = document.getElementById("company-industry");
+  const businessTypeInput = document.getElementById("company-business-type");
+  const addressInput = document.getElementById("company-address");
+  const phoneInput = document.getElementById("company-phone");
+  const emailInput = document.getElementById("company-email");
+  const currencyInput = document.getElementById("currency-select");
+  const countryInput = document.getElementById("company-country");
+  const stateInput = document.getElementById("company-state");
+  const cityInput = document.getElementById("company-city");
+  const financialYearStartInput = document.getElementById("financial-year-start");
+  const selectedCurrency = resolveCurrencySelection(currencyInput?.value || "");
   if (!selectedCurrency) {
     window.alert("Select a valid currency from the global currency list.");
     elements.currencySelect.focus();
@@ -985,17 +990,17 @@ async function handleCompanySetupSubmit(event) {
 
   const payload = {
     ...state.companySetup,
-    companyName: elements.companyName.value.trim(),
-    industry: elements.companyIndustry.value.trim(),
-    businessType: elements.companyBusinessType.value.trim(),
-    address: submittedAddress,
-    phone: elements.companyPhone.value.trim(),
-    email: elements.companyEmail.value.trim(),
+    companyName: companyNameInput?.value.trim() || "",
+    industry: industryInput?.value.trim() || "",
+    businessType: businessTypeInput?.value.trim() || "",
+    address: addressInput?.value.trim() || "",
+    phone: phoneInput?.value.trim() || "",
+    email: emailInput?.value.trim() || "",
     currency: selectedCurrency.code,
-    country: elements.companyCountry.value.trim(),
-    stateProvince: elements.companyState.value.trim(),
-    city: elements.companyCity.value.trim(),
-    financialYearStart: elements.financialYearStart.value,
+    country: countryInput?.value.trim() || "",
+    stateProvince: stateInput?.value.trim() || "",
+    city: cityInput?.value.trim() || "",
+    financialYearStart: financialYearStartInput?.value || "",
   };
 
   try {
