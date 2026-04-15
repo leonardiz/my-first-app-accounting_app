@@ -468,7 +468,7 @@ async function initializeState() {
   updateCurrencyFormatter();
   syncAssistantOnboardingMessage();
   await ensureLocationSelectionsLoaded();
-  syncCompanySetupFields();
+  await syncCompanySetupFields();
 }
 
 async function fetchCurrentSession() {
@@ -524,12 +524,64 @@ async function apiFetch(url, options = {}) {
 
 function normalizeCompanySetup(company) {
   const fallback = getDefaultCompanySetup();
-  const selectedCurrency = getCurrencyMeta(company?.currency) || getCurrencyMeta(fallback.currency);
+  const companyData =
+    company && typeof company === "object"
+      ? company.company && typeof company.company === "object"
+        ? company.company
+        : company
+      : {};
+  const selectedCurrency = getCurrencyMeta(companyData?.currency) || getCurrencyMeta(fallback.currency);
   return {
     ...fallback,
-    ...(company || {}),
+    ...companyData,
+    companyName: String(companyData?.companyName || companyData?.name || fallback.companyName).trim(),
+    industry: String(companyData?.industry || fallback.industry).trim(),
+    businessType: String(companyData?.businessType || fallback.businessType).trim(),
+    address: String(companyData?.address || fallback.address).trim(),
+    phone: String(companyData?.phone || fallback.phone).trim(),
+    email: String(companyData?.email || fallback.email).trim(),
+    country: String(companyData?.country || fallback.country).trim(),
+    stateProvince: String(companyData?.stateProvince || fallback.stateProvince).trim(),
+    city: String(companyData?.city || fallback.city).trim(),
+    financialYearStart: String(companyData?.financialYearStart || fallback.financialYearStart).trim(),
     currency: selectedCurrency?.code || fallback.currency,
   };
+}
+
+let activeToastTimeout = null;
+
+function showToast(message, tone = "success") {
+  let toastRegion = document.querySelector("#toast-region");
+  if (!toastRegion) {
+    toastRegion = document.createElement("div");
+    toastRegion.id = "toast-region";
+    toastRegion.className = "toast-region";
+    document.body.appendChild(toastRegion);
+  }
+
+  toastRegion.replaceChildren();
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${tone}`;
+  toast.textContent = message;
+  toastRegion.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add("is-visible");
+  });
+
+  if (activeToastTimeout) {
+    window.clearTimeout(activeToastTimeout);
+  }
+
+  activeToastTimeout = window.setTimeout(() => {
+    toast.classList.remove("is-visible");
+    window.setTimeout(() => {
+      if (toast.parentElement === toastRegion) {
+        toast.remove();
+      }
+    }, 220);
+  }, 2800);
 }
 
 async function loadCountries() {
@@ -924,12 +976,18 @@ function renderCompanySetup() {
     state.onboardingStepIndex === onboardingSteps.length - 1 ? "Finish Setup" : "Next Step";
 }
 
-function syncCompanySetupFields() {
-  if (!state.companySetup || !elements.companySetupForm) {
+async function syncCompanySetupFields(companySource = state.companySetup) {
+  if (!companySource || !elements.companySetupForm) {
     return;
   }
 
-  const company = state.companySetup;
+  const company = normalizeCompanySetup(companySource);
+  state.companySetup = company;
+
+  if (company.country) {
+    await loadStatesForCountry(company.country);
+  }
+
   if (elements.companyName) {
     elements.companyName.value = company.companyName || "";
   }
@@ -1008,11 +1066,12 @@ async function handleCompanySetupSubmit(event) {
       method: "PUT",
       body: JSON.stringify(payload),
     });
-    state.companySetup = normalizeCompanySetup(response.company);
+    state.companySetup = normalizeCompanySetup(response);
     updateCurrencyFormatter();
-    syncCompanySetupFields();
+    await syncCompanySetupFields(response);
     syncAssistantOnboardingMessage();
     render();
+    showToast("Company setup saved successfully");
   } catch (error) {
     window.alert(error.message);
   }
@@ -1026,9 +1085,9 @@ async function resetCompanySetup() {
       method: "PUT",
       body: JSON.stringify(state.companySetup),
     });
-    state.companySetup = normalizeCompanySetup(response.company);
+    state.companySetup = normalizeCompanySetup(response);
     updateCurrencyFormatter();
-    syncCompanySetupFields();
+    await syncCompanySetupFields(response);
     render();
   } catch (error) {
     window.alert(error.message);
