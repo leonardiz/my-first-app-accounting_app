@@ -69,6 +69,13 @@ body {
     transform 0.18s ease;
 }
 
+.toast.toast-error {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: #991b1b;
+  box-shadow: 0 18px 40px rgba(153, 27, 27, 0.16);
+}
+
 .toast.is-visible {
   opacity: 1;
   transform: translateY(0);
@@ -1120,6 +1127,65 @@ tbody tr:hover {
 .empty-state {
   padding: 40px 20px 14px;
   text-align: center;
+}
+
+.section-feedback {
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.section-feedback.is-error {
+  border-color: rgba(220, 38, 38, 0.18);
+  background: rgba(254, 242, 242, 0.96);
+  color: #991b1b;
+}
+
+.section-feedback.is-empty {
+  background: rgba(248, 250, 252, 0.96);
+}
+
+.section-feedback-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.section-feedback-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.section-feedback-copy strong {
+  font-size: 15px;
+}
+
+.section-feedback-copy p {
+  margin: 0;
+  color: inherit;
+}
+
+.section-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(22, 119, 255, 0.18);
+  border-top-color: var(--accent);
+  flex: 0 0 auto;
+  animation: section-spin 0.8s linear infinite;
+}
+
+.section-feedback.is-error .section-spinner {
+  border-color: rgba(220, 38, 38, 0.14);
+  border-top-color: #dc2626;
+}
+
+@keyframes section-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .hidden {

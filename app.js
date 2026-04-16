@@ -182,7 +182,7 @@ const state = {
   currentUser: null,
   accounts: [],
   journalEntries: [],
-  companySetup: null,
+  companySetup: getDefaultCompanySetup(),
   editingAccountId: null,
   editingJournalId: null,
   editingJournalDescriptionId: null,
@@ -204,6 +204,13 @@ const state = {
     currentLiabilities: true,
     nonCurrentLiabilities: true,
     equity: true,
+  },
+  requestStatus: {
+    dashboard: { loading: false, error: "" },
+    company: { loading: false, error: "" },
+    accounts: { loading: false, error: "" },
+    journal: { loading: false, error: "" },
+    ledger: { loading: false, error: "" },
   },
 };
 
@@ -238,7 +245,9 @@ const elements = {
   dashboardAccountsPayable: document.querySelector("#dashboard-accounts-payable"),
   dashboardTransactions: document.querySelector("#dashboard-transactions"),
   dashboardEmptyState: document.querySelector("#dashboard-empty-state"),
+  dashboardStatus: document.querySelector("#dashboard-status"),
   companySetupForm: document.querySelector("#company-setup-form"),
+  companySetupStatus: document.querySelector("#company-setup-status"),
   companyName: document.querySelector("#company-name"),
   companyIndustry: document.querySelector("#company-industry"),
   companyBusinessType: document.querySelector("#company-business-type"),
@@ -262,12 +271,17 @@ const elements = {
   totalBalance: document.querySelector("#total-balance"),
   totalJournalEntries: document.querySelector("#total-journal-entries"),
   totalJournalLines: document.querySelector("#total-journal-lines"),
+  accountsTableWrapper: document.querySelector("#accounts-table-wrapper"),
   accountsTableBody: document.querySelector("#accounts-table-body"),
   accountsEmptyState: document.querySelector("#accounts-empty-state"),
+  accountsStatus: document.querySelector("#accounts-status"),
+  journalTableWrapper: document.querySelector("#journal-table-wrapper"),
   journalTableBody: document.querySelector("#journal-table-body"),
   journalEmptyState: document.querySelector("#journal-empty-state"),
+  journalStatus: document.querySelector("#journal-status"),
   ledgerList: document.querySelector("#ledger-list"),
   ledgerEmptyState: document.querySelector("#ledger-empty-state"),
+  ledgerStatus: document.querySelector("#ledger-status"),
   trialBalanceTableBody: document.querySelector("#trial-balance-table-body"),
   trialBalanceTableFoot: document.querySelector("#trial-balance-table-foot"),
   trialBalanceEmptyState: document.querySelector("#trial-balance-empty-state"),
@@ -424,6 +438,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
+const workspaceStatusKeys = ["dashboard", "company", "accounts", "journal", "ledger"];
+
 async function bootApplication() {
   try {
     const session = await fetchCurrentSession();
@@ -439,9 +455,18 @@ async function bootApplication() {
     }
 
     state.currentUser = session.user;
+    startSectionLoading(workspaceStatusKeys);
+    render();
     await initializeState();
     render();
   } catch (error) {
+    if (state.currentUser) {
+      applyWorkspaceLoadError(error);
+      render();
+      showToast("We couldn't load your workspace right now.", "error");
+      return;
+    }
+
     state.currentUser = null;
     state.companySetup = getDefaultCompanySetup();
     state.accounts = syncOpeningBalanceEquityAccount([]);
@@ -453,22 +478,32 @@ async function bootApplication() {
 }
 
 async function initializeState() {
-  const bootstrap = await apiFetch("/api/bootstrap");
-  state.currentUser = bootstrap.user;
-  state.companySetup = normalizeCompanySetup(bootstrap.company);
-  state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(bootstrap.accounts) ? bootstrap.accounts : []);
-  state.journalEntries = syncSystemJournalEntry(
-    Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
-  );
-  state.assistantMessages = [];
-  state.currentView = "dashboard";
-  state.mobileSidebarOpen = false;
-  state.sidebarCollapsed = false;
-  state.setupBannerDismissed = false;
-  updateCurrencyFormatter();
-  syncAssistantOnboardingMessage();
-  await ensureLocationSelectionsLoaded();
-  await syncCompanySetupFields();
+  startSectionLoading(workspaceStatusKeys);
+  try {
+    const bootstrap = await apiFetch("/api/bootstrap");
+    state.currentUser = bootstrap.user;
+    state.companySetup = normalizeCompanySetup(bootstrap.company);
+    state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(bootstrap.accounts) ? bootstrap.accounts : []);
+    state.journalEntries = syncSystemJournalEntry(
+      Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
+    );
+    state.assistantMessages = [];
+    state.currentView = "dashboard";
+    state.mobileSidebarOpen = false;
+    state.sidebarCollapsed = false;
+    state.setupBannerDismissed = false;
+    updateCurrencyFormatter();
+    syncAssistantOnboardingMessage();
+    await ensureLocationSelectionsLoaded();
+    await syncCompanySetupFields();
+    clearSectionErrors(workspaceStatusKeys);
+  } catch (error) {
+    applyWorkspaceLoadError(error);
+    throw error;
+  } finally {
+    finishSectionLoading(workspaceStatusKeys);
+    render();
+  }
 }
 
 async function fetchCurrentSession() {
@@ -487,14 +522,26 @@ async function fetchCurrentSession() {
 }
 
 async function refreshWorkspaceData() {
-  const payload = await apiFetch("/api/bootstrap");
-  state.currentUser = payload.user;
-  state.companySetup = normalizeCompanySetup(payload.company);
-  state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(payload.accounts) ? payload.accounts : []);
-  state.journalEntries = syncSystemJournalEntry(
-    Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
-  );
-  updateCurrencyFormatter();
+  startSectionLoading(workspaceStatusKeys);
+  render();
+  try {
+    const payload = await apiFetch("/api/bootstrap");
+    state.currentUser = payload.user;
+    state.companySetup = normalizeCompanySetup(payload.company);
+    state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(payload.accounts) ? payload.accounts : []);
+    state.journalEntries = syncSystemJournalEntry(
+      Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
+    );
+    updateCurrencyFormatter();
+    await syncCompanySetupFields(payload.company);
+    clearSectionErrors(workspaceStatusKeys);
+  } catch (error) {
+    applyWorkspaceLoadError(error);
+    throw error;
+  } finally {
+    finishSectionLoading(workspaceStatusKeys);
+    render();
+  }
 }
 
 async function apiFetch(url, options = {}) {
@@ -548,8 +595,6 @@ function normalizeCompanySetup(company) {
   };
 }
 
-let activeToastTimeout = null;
-
 function showToast(message, tone = "success") {
   let toastRegion = document.querySelector("#toast-region");
   if (!toastRegion) {
@@ -558,8 +603,6 @@ function showToast(message, tone = "success") {
     toastRegion.className = "toast-region";
     document.body.appendChild(toastRegion);
   }
-
-  toastRegion.replaceChildren();
 
   const toast = document.createElement("div");
   toast.className = `toast toast-${tone}`;
@@ -570,18 +613,97 @@ function showToast(message, tone = "success") {
     toast.classList.add("is-visible");
   });
 
-  if (activeToastTimeout) {
-    window.clearTimeout(activeToastTimeout);
-  }
-
-  activeToastTimeout = window.setTimeout(() => {
+  window.setTimeout(() => {
     toast.classList.remove("is-visible");
     window.setTimeout(() => {
       if (toast.parentElement === toastRegion) {
         toast.remove();
       }
     }, 220);
-  }, 2800);
+  }, 3000);
+}
+
+function getVisibleAccounts() {
+  return state.accounts.filter((account) => !isOpeningBalanceEquityAccount(account));
+}
+
+function getVisibleJournalEntries() {
+  return state.journalEntries.filter((entry) => !entry.systemGenerated);
+}
+
+function setSectionStatus(sectionKey, updates = {}) {
+  state.requestStatus[sectionKey] = {
+    ...state.requestStatus[sectionKey],
+    ...updates,
+  };
+}
+
+function startSectionLoading(sectionKeys) {
+  sectionKeys.forEach((sectionKey) => {
+    setSectionStatus(sectionKey, { loading: true, error: "" });
+  });
+}
+
+function finishSectionLoading(sectionKeys) {
+  sectionKeys.forEach((sectionKey) => {
+    setSectionStatus(sectionKey, { loading: false });
+  });
+}
+
+function clearSectionErrors(sectionKeys) {
+  sectionKeys.forEach((sectionKey) => {
+    setSectionStatus(sectionKey, { error: "" });
+  });
+}
+
+function applyWorkspaceLoadError(error) {
+  const message = getFriendlyLoadErrorMessage(error);
+  setSectionStatus("dashboard", { error: `We couldn't load the dashboard right now. ${message}` });
+  setSectionStatus("company", { error: `We couldn't load your company setup right now. ${message}` });
+  setSectionStatus("accounts", { error: `We couldn't load your chart of accounts right now. ${message}` });
+  setSectionStatus("journal", { error: `We couldn't load journal entries right now. ${message}` });
+  setSectionStatus("ledger", { error: `We couldn't load the general ledger right now. ${message}` });
+}
+
+function getFriendlyLoadErrorMessage(error) {
+  const fallbackMessage = "Please refresh and try again.";
+  const rawMessage = String(error?.message || "").trim();
+  if (!rawMessage) {
+    return fallbackMessage;
+  }
+
+  return rawMessage.endsWith(".")
+    ? `${rawMessage} Please refresh and try again.`
+    : `${rawMessage}. Please refresh and try again.`;
+}
+
+function renderSectionFeedback(element, config = {}) {
+  if (!element) {
+    return;
+  }
+
+  const { visible = false, tone = "empty", title = "", message = "", showSpinner = false } = config;
+  element.classList.toggle("hidden", !visible);
+  element.classList.toggle("is-error", visible && tone === "error");
+  element.classList.toggle("is-empty", visible && tone === "empty");
+
+  if (!visible) {
+    safeSetInnerHTML(element, "");
+    return;
+  }
+
+  safeSetInnerHTML(
+    element,
+    `
+      <div class="section-feedback-content">
+        ${showSpinner ? '<span class="section-spinner" aria-hidden="true"></span>' : ""}
+        <div class="section-feedback-copy">
+          <strong>${escapeHtml(title)}</strong>
+          <p>${escapeHtml(message)}</p>
+        </div>
+      </div>
+    `,
+  );
 }
 
 async function loadCountries() {
@@ -832,12 +954,37 @@ function renderSetupBanners() {
 }
 
 function renderDashboard() {
+  const dashboardStatus = state.requestStatus.dashboard;
+  if (dashboardStatus.loading) {
+    elements.dashboardTransactions.classList.add("hidden");
+    elements.dashboardEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.dashboardStatus, {
+      visible: true,
+      tone: "loading",
+      title: "Loading dashboard",
+      message: "Pulling your latest balances and activity.",
+      showSpinner: true,
+    });
+    return;
+  }
+
+  if (dashboardStatus.error) {
+    elements.dashboardTransactions.classList.add("hidden");
+    elements.dashboardEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.dashboardStatus, {
+      visible: true,
+      tone: "error",
+      title: "Dashboard unavailable",
+      message: dashboardStatus.error,
+    });
+    return;
+  }
+
   const cashFlow = buildCashFlowStatementReport();
   const incomeStatement = buildIncomeStatementReport();
   const monthlyNetIncome = buildCurrentMonthNetIncome();
   const accountsPayable = buildAccountsPayableBalance();
-  const recentTransactions = state.journalEntries
-    .filter((entry) => !entry.systemGenerated)
+  const recentTransactions = getVisibleJournalEntries()
     .slice()
     .sort((left, right) => new Date(right.date) - new Date(left.date))
     .slice(0, 6);
@@ -848,8 +995,18 @@ function renderDashboard() {
   elements.dashboardTotalExpenses.textContent = currencyFormatter.format(incomeStatement.operatingExpenses);
   elements.dashboardAccountsPayable.textContent = currencyFormatter.format(accountsPayable);
   safeSetInnerHTML(elements.dashboardTransactions, "");
+  elements.dashboardTransactions.classList.remove("hidden");
+  renderSectionFeedback(elements.dashboardStatus, { visible: false });
 
   if (!recentTransactions.length) {
+    elements.dashboardTransactions.classList.add("hidden");
+    safeSetInnerHTML(
+      elements.dashboardEmptyState,
+      `
+        <h3>No dashboard activity yet</h3>
+        <p>No dashboard activity yet. Add accounts and journal entries to get started.</p>
+      `,
+    );
     elements.dashboardEmptyState.classList.remove("hidden");
     return;
   }
@@ -925,6 +1082,7 @@ function buildAccountsPayableBalance() {
 }
 
 function renderCompanySetup() {
+  const companyStatus = state.requestStatus.company;
   const onboardingSteps = getOnboardingSteps();
   const currentStep = onboardingSteps[state.onboardingStepIndex] || onboardingSteps[0];
   const selectedCurrency = getCurrencyMeta(state.companySetup.currency);
@@ -937,6 +1095,27 @@ function renderCompanySetup() {
   elements.onboardingSubtitle.textContent = currentStep
     ? currentStep.helper
     : "Complete your company setup details.";
+  elements.companySetupForm.classList.toggle("hidden", companyStatus.loading || Boolean(companyStatus.error));
+
+  if (companyStatus.loading) {
+    renderSectionFeedback(elements.companySetupStatus, {
+      visible: true,
+      tone: "loading",
+      title: "Loading company setup",
+      message: "Fetching your company profile and preferences.",
+      showSpinner: true,
+    });
+  } else if (companyStatus.error) {
+    renderSectionFeedback(elements.companySetupStatus, {
+      visible: true,
+      tone: "error",
+      title: "Company setup unavailable",
+      message: companyStatus.error,
+    });
+  } else {
+    renderSectionFeedback(elements.companySetupStatus, { visible: false });
+  }
+
   safeSetInnerHTML(elements.companySetupGuide, "");
   safeSetInnerHTML(elements.onboardingStepList, "");
 
@@ -1041,7 +1220,7 @@ async function handleCompanySetupSubmit(event) {
   const financialYearStartInput = document.getElementById("financial-year-start");
   const selectedCurrency = resolveCurrencySelection(currencyInput?.value || "");
   if (!selectedCurrency) {
-    window.alert("Select a valid currency from the global currency list.");
+    showToast("Select a valid currency from the global currency list.", "error");
     elements.currencySelect.focus();
     return;
   }
@@ -1073,7 +1252,7 @@ async function handleCompanySetupSubmit(event) {
     render();
     showToast("Company setup saved successfully");
   } catch (error) {
-    window.alert(error.message);
+    showToast(`Unable to save company setup. ${error.message}`, "error");
   }
 }
 
@@ -1089,8 +1268,9 @@ async function resetCompanySetup() {
     updateCurrencyFormatter();
     await syncCompanySetupFields(response);
     render();
+    showToast("Company setup reset successfully");
   } catch (error) {
-    window.alert(error.message);
+    showToast(`Unable to reset company setup. ${error.message}`, "error");
   }
 }
 
@@ -1373,16 +1553,53 @@ function syncAssistantOnboardingMessage() {
 }
 
 function renderAccountsTable() {
+  const accountsStatus = state.requestStatus.accounts;
+  if (accountsStatus.loading) {
+    elements.accountsTableWrapper.classList.add("hidden");
+    elements.accountsEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.accountsStatus, {
+      visible: true,
+      tone: "loading",
+      title: "Loading accounts",
+      message: "Fetching your chart of accounts.",
+      showSpinner: true,
+    });
+    return;
+  }
+
+  if (accountsStatus.error) {
+    elements.accountsTableWrapper.classList.add("hidden");
+    elements.accountsEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.accountsStatus, {
+      visible: true,
+      tone: "error",
+      title: "Accounts unavailable",
+      message: accountsStatus.error,
+    });
+    return;
+  }
+
+  const visibleAccounts = getVisibleAccounts();
+  elements.accountsTableWrapper.classList.remove("hidden");
+  renderSectionFeedback(elements.accountsStatus, { visible: false });
   safeSetInnerHTML(elements.accountsTableBody, "");
 
-  if (state.accounts.length === 0) {
+  if (visibleAccounts.length === 0) {
+    elements.accountsTableWrapper.classList.add("hidden");
+    safeSetInnerHTML(
+      elements.accountsEmptyState,
+      `
+        <h3>No accounts yet</h3>
+        <p>No accounts yet. Add your first account to get started.</p>
+      `,
+    );
     elements.accountsEmptyState.classList.remove("hidden");
     return;
   }
 
   elements.accountsEmptyState.classList.add("hidden");
 
-  const sortedAccounts = [...state.accounts].sort((left, right) => {
+  const sortedAccounts = [...visibleAccounts].sort((left, right) => {
     if (left.code === right.code) {
       return left.name.localeCompare(right.name);
     }
@@ -1416,16 +1633,53 @@ function renderAccountsTable() {
 }
 
 function renderJournalTable() {
+  const journalStatus = state.requestStatus.journal;
+  if (journalStatus.loading) {
+    elements.journalTableWrapper.classList.add("hidden");
+    elements.journalEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.journalStatus, {
+      visible: true,
+      tone: "loading",
+      title: "Loading journal entries",
+      message: "Fetching your latest posted activity.",
+      showSpinner: true,
+    });
+    return;
+  }
+
+  if (journalStatus.error) {
+    elements.journalTableWrapper.classList.add("hidden");
+    elements.journalEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.journalStatus, {
+      visible: true,
+      tone: "error",
+      title: "Journal unavailable",
+      message: journalStatus.error,
+    });
+    return;
+  }
+
+  const visibleEntries = getVisibleJournalEntries();
+  elements.journalTableWrapper.classList.remove("hidden");
+  renderSectionFeedback(elements.journalStatus, { visible: false });
   safeSetInnerHTML(elements.journalTableBody, "");
 
-  if (state.journalEntries.length === 0) {
+  if (visibleEntries.length === 0) {
+    elements.journalTableWrapper.classList.add("hidden");
+    safeSetInnerHTML(
+      elements.journalEmptyState,
+      `
+        <h3>No journal entries yet</h3>
+        <p>No journal entries yet. Add your first journal entry to get started.</p>
+      `,
+    );
     elements.journalEmptyState.classList.remove("hidden");
     return;
   }
 
   elements.journalEmptyState.classList.add("hidden");
 
-  const sortedEntries = [...state.journalEntries].sort((left, right) => {
+  const sortedEntries = [...visibleEntries].sort((left, right) => {
     return new Date(right.date) - new Date(left.date);
   });
 
@@ -1503,25 +1757,64 @@ function renderJournalTable() {
 }
 
 function renderSummary() {
-  const totalBalance = state.accounts.reduce(
+  const visibleAccounts = getVisibleAccounts();
+  const visibleEntries = getVisibleJournalEntries();
+  const totalBalance = visibleAccounts.reduce(
     (sum, account) => sum + (Number(account.openingBalance) || 0),
     0,
   );
-  const totalJournalLines = state.journalEntries.reduce(
+  const totalJournalLines = visibleEntries.reduce(
     (sum, entry) => sum + entry.lineItems.length,
     0,
   );
 
-  elements.totalAccounts.textContent = String(state.accounts.length);
+  elements.totalAccounts.textContent = String(visibleAccounts.length);
   elements.totalBalance.textContent = currencyFormatter.format(totalBalance);
-  elements.totalJournalEntries.textContent = String(state.journalEntries.length);
+  elements.totalJournalEntries.textContent = String(visibleEntries.length);
   elements.totalJournalLines.textContent = String(totalJournalLines);
 }
 
 function renderGeneralLedger() {
+  const ledgerStatus = state.requestStatus.ledger;
+  if (ledgerStatus.loading) {
+    elements.ledgerList.classList.add("hidden");
+    elements.ledgerEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.ledgerStatus, {
+      visible: true,
+      tone: "loading",
+      title: "Loading general ledger",
+      message: "Calculating running balances for each account.",
+      showSpinner: true,
+    });
+    return;
+  }
+
+  if (ledgerStatus.error) {
+    elements.ledgerList.classList.add("hidden");
+    elements.ledgerEmptyState.classList.add("hidden");
+    renderSectionFeedback(elements.ledgerStatus, {
+      visible: true,
+      tone: "error",
+      title: "General ledger unavailable",
+      message: ledgerStatus.error,
+    });
+    return;
+  }
+
+  const visibleAccounts = getVisibleAccounts();
+  elements.ledgerList.classList.remove("hidden");
+  renderSectionFeedback(elements.ledgerStatus, { visible: false });
   safeSetInnerHTML(elements.ledgerList, "");
 
-  if (state.accounts.length === 0) {
+  if (visibleAccounts.length === 0) {
+    elements.ledgerList.classList.add("hidden");
+    safeSetInnerHTML(
+      elements.ledgerEmptyState,
+      `
+        <h3>No ledger activity yet</h3>
+        <p>No ledger activity yet. Add accounts and journal entries to get started.</p>
+      `,
+    );
     elements.ledgerEmptyState.classList.remove("hidden");
     return;
   }
@@ -2000,7 +2293,7 @@ async function handleAccountTableAction(event) {
   const account = state.accounts.find((entry) => entry.id === id);
 
   if (account && isOpeningBalanceEquityAccount(account)) {
-    window.alert("Opening Balance Equity is system-managed and cannot be edited or deleted.");
+    showToast("Opening Balance Equity is system-managed and cannot be edited or deleted.", "error");
     return;
   }
 
@@ -2021,9 +2314,7 @@ async function handleAccountTableAction(event) {
     );
 
     if (accountIsReferenced) {
-      window.alert(
-        "This account is used in journal entries and cannot be deleted until those entries are updated.",
-      );
+      showToast("This account is used in journal entries and cannot be deleted until those entries are updated.", "error");
       return;
     }
 
@@ -2036,8 +2327,9 @@ async function handleAccountTableAction(event) {
       await apiFetch(`/api/accounts/${id}`, { method: "DELETE" });
       await refreshWorkspaceData();
       render();
+      showToast("Account deleted successfully");
     } catch (error) {
-      window.alert(error.message);
+      showToast(`Unable to delete account. ${error.message}`, "error");
     }
   }
 }
@@ -2052,7 +2344,7 @@ async function handleJournalTableAction(event) {
   const entry = state.journalEntries.find((item) => item.id === id);
 
   if (entry?.systemGenerated && action !== "cancel-journal-description") {
-    window.alert("This opening balance entry is system-generated and cannot be edited or deleted.");
+    showToast("This opening balance entry is system-generated and cannot be edited or deleted.", "error");
     return;
   }
 
@@ -2079,7 +2371,7 @@ async function handleJournalTableAction(event) {
     const input = elements.journalTableBody.querySelector(`[data-journal-description-input="${id}"]`);
     const nextDescription = input?.value.trim() || "";
     if (!nextDescription) {
-      window.alert("Journal entry description cannot be empty.");
+      showToast("Journal entry description cannot be empty.", "error");
       return;
     }
 
@@ -2095,8 +2387,9 @@ async function handleJournalTableAction(event) {
       state.editingJournalDescriptionId = null;
       await refreshWorkspaceData();
       render();
+      showToast("Journal entry updated successfully");
     } catch (error) {
-      window.alert(error.message);
+      showToast(`Unable to update journal entry. ${error.message}`, "error");
     }
     return;
   }
@@ -2122,8 +2415,9 @@ async function handleJournalTableAction(event) {
       await apiFetch(`/api/journal-entries/${id}`, { method: "DELETE" });
       await refreshWorkspaceData();
       render();
+      showToast("Journal entry deleted successfully");
     } catch (error) {
-      window.alert(error.message);
+      showToast(`Unable to delete journal entry. ${error.message}`, "error");
     }
   }
 }
@@ -2201,6 +2495,7 @@ async function handleAccountSubmit(event) {
   }
 
   try {
+    const isEditingAccount = Boolean(state.editingAccountId);
     if (state.editingAccountId) {
       await apiFetch(`/api/accounts/${state.editingAccountId}`, {
         method: "PUT",
@@ -2216,14 +2511,16 @@ async function handleAccountSubmit(event) {
     await refreshWorkspaceData();
     render();
     closeAccountDialog();
+    showToast(isEditingAccount ? "Account updated successfully" : "Account created successfully");
   } catch (error) {
     showAccountError(error.message);
+    showToast(`Unable to save account. ${error.message}`, "error");
   }
 }
 
 function openJournalDialog(entry) {
-  if (state.accounts.length === 0) {
-    window.alert("Add at least one account before recording a journal entry.");
+  if (getVisibleAccounts().length === 0) {
+    showToast("Add at least one account before recording a journal entry.", "error");
     return;
   }
 
@@ -2378,6 +2675,7 @@ async function handleJournalSubmit(event) {
   };
 
   try {
+    const isEditingJournal = Boolean(state.editingJournalId);
     if (state.editingJournalId) {
       await apiFetch(`/api/journal-entries/${state.editingJournalId}`, {
         method: "PUT",
@@ -2393,8 +2691,10 @@ async function handleJournalSubmit(event) {
     await refreshWorkspaceData();
     render();
     closeJournalDialog();
+    showToast(isEditingJournal ? "Journal entry updated successfully" : "Journal entry created successfully");
   } catch (error) {
     showJournalError(error.message);
+    showToast(`Unable to save journal entry. ${error.message}`, "error");
   }
 }
 
