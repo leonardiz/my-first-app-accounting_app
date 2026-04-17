@@ -4,6 +4,8 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 const User = require("./models/User");
 const Company = require("./models/Company");
@@ -18,12 +20,65 @@ const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const mongoUri = process.env.MONGODB_URI || "";
 const jwtSecret = process.env.JWT_SECRET || "";
 const authCookieName = "ledgrai_token";
+const isProduction = process.env.NODE_ENV === "production";
+const allowedAccountTypes = new Set(["Asset", "Liability", "Equity", "Revenue", "Expense"]);
 
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'", "https://countriesnow.space"],
+        fontSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    frameguard: { action: "deny" },
+  }),
+);
+app.use((req, res, next) => {
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  next();
+});
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      res.status(429).json({
+        error: "Too many requests from this IP. Please wait 15 minutes and try again.",
+      });
+    },
+  }),
+);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
+app.use(sanitizeRequestBody);
 app.use(express.static(root));
 
-app.post("/auth/register", async (req, res) => {
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      error: "Too many authentication attempts. Please wait 15 minutes before trying again.",
+    });
+  },
+});
+
+app.post("/auth/register", authLimiter, async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
     if (!name?.trim() || !email?.trim() || !password) {
@@ -34,7 +89,7 @@ app.post("/auth/register", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 8 characters." });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = sanitizeEmail(email);
     const existingUser = await User.findOne({ email: normalizedEmail }).lean();
     if (existingUser) {
       return res.status(409).json({ error: "An account with that email already exists." });
@@ -42,7 +97,7 @@ app.post("/auth/register", async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({
-      name: name.trim(),
+      name: sanitizeText(name),
       email: normalizedEmail,
       passwordHash,
     });
@@ -56,14 +111,14 @@ app.post("/auth/register", async (req, res) => {
   }
 });
 
-app.post("/auth/login", async (req, res) => {
+app.post("/auth/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email?.trim() || !password) {
       return res.status(400).json({ error: "Email and password are required." });
     }
 
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    const user = await User.findOne({ email: sanitizeEmail(email) });
     if (!user) {
       return res.status(401).json({ error: "Invalid email or password." });
     }
@@ -357,8 +412,8 @@ function setAuthCookie(res, userId) {
   const token = jwt.sign({ userId }, jwtSecret, { expiresIn: "7d" });
   res.cookie(authCookieName, token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    secure: true,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 }
@@ -366,8 +421,8 @@ function setAuthCookie(res, userId) {
 function clearAuthCookie(res) {
   res.clearCookie(authCookieName, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    secure: true,
   });
 }
 
@@ -443,48 +498,165 @@ function serializeJournalEntry(entry) {
 }
 
 function normalizeCompanyPayload(payload) {
+  const currency = sanitizeUppercaseCode(payload.currency || "NGN", 3);
+  const financialYearStart = sanitizeDateInput(payload.financialYearStart || "");
   return {
-    name: String(payload.companyName || payload.name || "").trim(),
-    industry: String(payload.industry || "").trim(),
-    businessType: String(payload.businessType || "").trim(),
-    address: String(payload.address || "").trim(),
-    phone: String(payload.phone || "").trim(),
-    email: String(payload.email || "").trim(),
-    currency: String(payload.currency || "NGN").trim().toUpperCase(),
-    country: String(payload.country || "").trim(),
-    stateProvince: String(payload.stateProvince || "").trim(),
-    city: String(payload.city || "").trim(),
-    financialYearStart: String(payload.financialYearStart || "").trim(),
+    name: sanitizeText(payload.companyName || payload.name || "", 120),
+    industry: sanitizeText(payload.industry || "", 120),
+    businessType: sanitizeText(payload.businessType || "", 120),
+    address: sanitizeText(payload.address || "", 240),
+    phone: sanitizeText(payload.phone || "", 40),
+    email: sanitizeEmail(payload.email || ""),
+    currency: currency || "NGN",
+    country: sanitizeText(payload.country || "", 120),
+    stateProvince: sanitizeText(payload.stateProvince || "", 120),
+    city: sanitizeText(payload.city || "", 120),
+    financialYearStart,
   };
 }
 
 function normalizeAccountPayload(payload) {
+  const type = sanitizeText(payload.type || "", 20);
+  if (!allowedAccountTypes.has(type)) {
+    throw createHttpError(400, "Account type is invalid.");
+  }
+
   return {
-    code: String(payload.code || "").trim(),
-    name: String(payload.name || "").trim(),
-    type: String(payload.type || "").trim(),
-    openingBalance: Number(payload.openingBalance) || 0,
+    code: sanitizeUppercaseCode(payload.code || "", 24),
+    name: sanitizeText(payload.name || "", 120),
+    type,
+    openingBalance: parseNumberField(payload.openingBalance, "Opening balance"),
   };
 }
 
 function normalizeJournalEntryPayload(payload) {
+  const linesSource = Array.isArray(payload.lineItems || payload.lines)
+    ? payload.lineItems || payload.lines
+    : [];
+  const lines = linesSource.map((line, index) => normalizeJournalLine(line, index));
+  if (!lines.length) {
+    throw createHttpError(400, "Journal entry must include at least one line.");
+  }
+
   return {
-    date: String(payload.date || "").trim(),
-    description: String(payload.description || "").trim(),
-    lines: Array.isArray(payload.lineItems || payload.lines)
-      ? (payload.lineItems || payload.lines).map((line) => ({
-          accountId: line.accountId,
-          debit: Number(line.debit) || 0,
-          credit: Number(line.credit) || 0,
-        }))
-      : [],
+    date: sanitizeDateInput(payload.date || ""),
+    description: sanitizeText(payload.description || "", 240),
+    lines,
   };
+}
+
+function normalizeJournalLine(line, index) {
+  const accountId = String(line?.accountId || "").trim();
+  if (!mongoose.Types.ObjectId.isValid(accountId)) {
+    throw createHttpError(400, `Journal line ${index + 1} has an invalid account reference.`);
+  }
+
+  const debit = parseNumberField(line?.debit, `Journal line ${index + 1} debit`);
+  const credit = parseNumberField(line?.credit, `Journal line ${index + 1} credit`);
+  return {
+    accountId,
+    debit,
+    credit,
+  };
+}
+
+function sanitizeRequestBody(req, res, next) {
+  try {
+    req.body = sanitizeValue(req.body);
+    next();
+  } catch (error) {
+    res.status(400).json({ error: "Invalid request payload." });
+  }
+}
+
+function sanitizeValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeValue(item));
+  }
+
+  if (value && typeof value === "object") {
+    const sanitized = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (key.includes("$") || key.includes(".")) {
+        throw createHttpError(400, "Invalid request payload.");
+      }
+      sanitized[key] = sanitizeValue(nestedValue);
+    }
+    return sanitized;
+  }
+
+  if (typeof value === "string") {
+    return sanitizeRawString(value);
+  }
+
+  return value;
+}
+
+function sanitizeRawString(value) {
+  return String(value)
+    .normalize("NFKC")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/[<>]/g, "");
+}
+
+function sanitizeText(value, maxLength = 160) {
+  return sanitizeRawString(value).trim().slice(0, maxLength);
+}
+
+function sanitizeEmail(value) {
+  return sanitizeRawString(value).trim().toLowerCase().slice(0, 254);
+}
+
+function sanitizeUppercaseCode(value, maxLength = 24) {
+  return sanitizeRawString(value).trim().toUpperCase().slice(0, maxLength);
+}
+
+function sanitizeDateInput(value) {
+  const normalized = sanitizeRawString(value).trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw createHttpError(400, "Date must be in YYYY-MM-DD format.");
+  }
+
+  return normalized;
+}
+
+function parseNumberField(value, fieldName) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return 0;
+  }
+
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    throw createHttpError(400, `${fieldName} must be a valid number.`);
+  }
+
+  return number;
+}
+
+function createHttpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
 }
 
 function sendServerError(res, error, message) {
   console.error(message, error);
-  return res.status(500).json({
-    error: message,
-    details: error instanceof Error ? error.message : String(error),
-  });
+  if (error?.status) {
+    return res.status(error.status).json({ error: error.message || message });
+  }
+
+  if (error?.name === "ValidationError" || error?.name === "CastError") {
+    return res.status(400).json({ error: "Invalid request data." });
+  }
+
+  const response = { error: message };
+  if (!isProduction) {
+    response.details = error instanceof Error ? error.message : String(error);
+  }
+
+  return res.status(500).json(response);
 }
