@@ -14,6 +14,11 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    activeCompanyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      default: null,
+    },
     passwordHash: {
       type: String,
       required: true,

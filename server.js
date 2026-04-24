@@ -155,10 +155,12 @@ app.get("/auth/me", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized." });
     }
 
-    const company = await Company.findOne({ userId: user._id }).lean();
+    const { companies, activeCompany } = await resolveUserCompanies(user);
     return res.json({
       user: serializeUser(user),
-      company: serializeCompany(company),
+      activeCompanyId: activeCompany?._id?.toString() || "",
+      company: serializeCompany(activeCompany),
+      companies: companies.map(serializeCompany),
     });
   } catch (error) {
     return sendServerError(res, error, "Failed to load current user.");
@@ -169,15 +171,24 @@ app.use("/api", requireAuth);
 
 app.get("/api/bootstrap", async (req, res) => {
   try {
-    const [company, accounts, journalEntries] = await Promise.all([
-      Company.findOne({ userId: req.user._id }).lean(),
-      Account.find({ userId: req.user._id }).sort({ code: 1, name: 1 }).lean(),
-      JournalEntry.find({ userId: req.user._id }).sort({ date: -1, createdAt: -1 }).lean(),
-    ]);
+    const { companies, activeCompany } = await resolveUserCompanies(req.user);
+    const activeCompanyId = activeCompany?._id || null;
+    const [accounts, journalEntries] = activeCompanyId
+      ? await Promise.all([
+          Account.find({ userId: req.user._id, companyId: activeCompanyId })
+            .sort({ code: 1, name: 1 })
+            .lean(),
+          JournalEntry.find({ userId: req.user._id, companyId: activeCompanyId })
+            .sort({ date: -1, createdAt: -1 })
+            .lean(),
+        ])
+      : [[], []];
 
     return res.json({
       user: serializeUser(req.user),
-      company: serializeCompany(company),
+      activeCompanyId: activeCompanyId?.toString() || "",
+      company: serializeCompany(activeCompany),
+      companies: companies.map(serializeCompany),
       accounts: accounts.map(serializeAccount),
       journalEntries: journalEntries.map(serializeJournalEntry),
     });
@@ -189,23 +200,81 @@ app.get("/api/bootstrap", async (req, res) => {
 app.put("/api/company", async (req, res) => {
   try {
     const payload = normalizeCompanyPayload(req.body || {});
-    const company = await Company.findOneAndUpdate(
-      { userId: req.user._id },
-      { ...payload, userId: req.user._id },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
+    let company = await getActiveCompany(req.user);
+    if (!company) {
+      company = await Company.create({
+        userId: req.user._id,
+        ...payload,
+      });
+      await User.updateOne({ _id: req.user._id }, { $set: { activeCompanyId: company._id } });
+      req.user.activeCompanyId = company._id;
+    } else {
+      company = await Company.findOneAndUpdate(
+        { _id: company._id, userId: req.user._id },
+        payload,
+        { new: true, runValidators: true },
+      );
+    }
 
-    return res.json({ company: serializeCompany(company) });
+    const companies = await Company.find({ userId: req.user._id }).sort({ createdAt: 1, name: 1 }).lean();
+    return res.json({
+      activeCompanyId: company._id.toString(),
+      company: serializeCompany(company),
+      companies: companies.map(serializeCompany),
+    });
   } catch (error) {
     return sendServerError(res, error, "Failed to save company settings.");
   }
 });
 
+app.post("/api/companies", async (req, res) => {
+  try {
+    const payload = normalizeCompanyPayload(req.body || {});
+    const company = await Company.create({
+      userId: req.user._id,
+      ...payload,
+    });
+
+    await User.updateOne({ _id: req.user._id }, { $set: { activeCompanyId: company._id } });
+    req.user.activeCompanyId = company._id;
+
+    const companies = await Company.find({ userId: req.user._id }).sort({ createdAt: 1, name: 1 }).lean();
+    return res.status(201).json({
+      activeCompanyId: company._id.toString(),
+      company: serializeCompany(company),
+      companies: companies.map(serializeCompany),
+    });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to create company.");
+  }
+});
+
+app.post("/api/companies/:id/select", async (req, res) => {
+  try {
+    const company = await Company.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!company) {
+      return res.status(404).json({ error: "Company not found." });
+    }
+
+    await User.updateOne({ _id: req.user._id }, { $set: { activeCompanyId: company._id } });
+    req.user.activeCompanyId = company._id;
+
+    return res.json({
+      activeCompanyId: company._id.toString(),
+      company: serializeCompany(company),
+    });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to switch company.");
+  }
+});
+
 app.post("/api/accounts", async (req, res) => {
   try {
+    const activeCompany = await requireActiveCompany(req.user);
     const payload = normalizeAccountPayload(req.body || {});
     const account = await Account.create({
       userId: req.user._id,
+      companyId: activeCompany._id,
       ...payload,
     });
     return res.status(201).json({ account: serializeAccount(account) });
@@ -219,9 +288,10 @@ app.post("/api/accounts", async (req, res) => {
 
 app.put("/api/accounts/:id", async (req, res) => {
   try {
+    const activeCompany = await requireActiveCompany(req.user);
     const payload = normalizeAccountPayload(req.body || {});
     const account = await Account.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user._id },
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
       payload,
       { new: true, runValidators: true },
     );
@@ -241,8 +311,10 @@ app.put("/api/accounts/:id", async (req, res) => {
 
 app.delete("/api/accounts/:id", async (req, res) => {
   try {
+    const activeCompany = await requireActiveCompany(req.user);
     const isReferenced = await JournalEntry.exists({
       userId: req.user._id,
+      companyId: activeCompany._id,
       "lines.accountId": req.params.id,
     });
     if (isReferenced) {
@@ -251,7 +323,11 @@ app.delete("/api/accounts/:id", async (req, res) => {
       });
     }
 
-    const deletion = await Account.deleteOne({ _id: req.params.id, userId: req.user._id });
+    const deletion = await Account.deleteOne({
+      _id: req.params.id,
+      userId: req.user._id,
+      companyId: activeCompany._id,
+    });
     if (!deletion.deletedCount) {
       return res.status(404).json({ error: "Account not found." });
     }
@@ -264,9 +340,11 @@ app.delete("/api/accounts/:id", async (req, res) => {
 
 app.post("/api/journal-entries", async (req, res) => {
   try {
-    const payload = normalizeJournalEntryPayload(req.body || {});
+    const activeCompany = await requireActiveCompany(req.user);
+    const payload = await normalizeJournalEntryPayload(req.body || {}, req.user._id, activeCompany._id);
     const journalEntry = await JournalEntry.create({
       userId: req.user._id,
+      companyId: activeCompany._id,
       ...payload,
     });
     return res.status(201).json({ journalEntry: serializeJournalEntry(journalEntry) });
@@ -277,9 +355,10 @@ app.post("/api/journal-entries", async (req, res) => {
 
 app.put("/api/journal-entries/:id", async (req, res) => {
   try {
-    const payload = normalizeJournalEntryPayload(req.body || {});
+    const activeCompany = await requireActiveCompany(req.user);
+    const payload = await normalizeJournalEntryPayload(req.body || {}, req.user._id, activeCompany._id);
     const journalEntry = await JournalEntry.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user._id },
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
       payload,
       { new: true, runValidators: true },
     );
@@ -296,7 +375,12 @@ app.put("/api/journal-entries/:id", async (req, res) => {
 
 app.delete("/api/journal-entries/:id", async (req, res) => {
   try {
-    const deletion = await JournalEntry.deleteOne({ _id: req.params.id, userId: req.user._id });
+    const activeCompany = await requireActiveCompany(req.user);
+    const deletion = await JournalEntry.deleteOne({
+      _id: req.params.id,
+      userId: req.user._id,
+      companyId: activeCompany._id,
+    });
     if (!deletion.deletedCount) {
       return res.status(404).json({ error: "Journal entry not found." });
     }
@@ -441,6 +525,7 @@ function serializeUser(user) {
     id: user._id.toString(),
     name: user.name,
     email: user.email,
+    activeCompanyId: user.activeCompanyId ? user.activeCompanyId.toString() : "",
     createdAt: user.createdAt,
   };
 }
@@ -448,6 +533,7 @@ function serializeUser(user) {
 function serializeCompany(company) {
   if (!company) {
     return {
+      id: "",
       name: "",
       industry: "",
       businessType: "",
@@ -460,6 +546,7 @@ function serializeCompany(company) {
   }
 
   return {
+    id: company._id.toString(),
     name: company.name || "",
     industry: company.industry || "",
     businessType: company.businessType || "",
@@ -529,13 +616,23 @@ function normalizeAccountPayload(payload) {
   };
 }
 
-function normalizeJournalEntryPayload(payload) {
+async function normalizeJournalEntryPayload(payload, userId, companyId) {
   const linesSource = Array.isArray(payload.lineItems || payload.lines)
     ? payload.lineItems || payload.lines
     : [];
   const lines = linesSource.map((line, index) => normalizeJournalLine(line, index));
   if (!lines.length) {
     throw createHttpError(400, "Journal entry must include at least one line.");
+  }
+
+  const uniqueAccountIds = [...new Set(lines.map((line) => line.accountId))];
+  const accountCount = await Account.countDocuments({
+    _id: { $in: uniqueAccountIds },
+    userId,
+    companyId,
+  });
+  if (accountCount !== uniqueAccountIds.length) {
+    throw createHttpError(400, "Journal entry lines must reference accounts in the active company.");
   }
 
   return {
@@ -558,6 +655,71 @@ function normalizeJournalLine(line, index) {
     debit,
     credit,
   };
+}
+
+async function getActiveCompany(user) {
+  const { activeCompany } = await resolveUserCompanies(user);
+  return activeCompany;
+}
+
+async function requireActiveCompany(user) {
+  const activeCompany = await getActiveCompany(user);
+  if (!activeCompany) {
+    throw createHttpError(400, "Create or select a company before working with financial data.");
+  }
+  return activeCompany;
+}
+
+async function resolveUserCompanies(user) {
+  let companies = await Company.find({ userId: user._id }).sort({ createdAt: 1, name: 1 }).lean();
+
+  if (!companies.length) {
+    const hasLegacyFinancialData = await Promise.all([
+      Account.exists({ userId: user._id, companyId: { $exists: false } }),
+      JournalEntry.exists({ userId: user._id, companyId: { $exists: false } }),
+    ]).then((results) => results.some(Boolean));
+
+    if (hasLegacyFinancialData) {
+      const company = await Company.create({
+        userId: user._id,
+        name: "Primary Company",
+      });
+      companies = [company.toObject()];
+      await User.updateOne({ _id: user._id }, { $set: { activeCompanyId: company._id } });
+      user.activeCompanyId = company._id;
+    }
+  }
+
+  let activeCompany =
+    companies.find((company) => company._id.toString() === String(user.activeCompanyId || "")) || null;
+
+  if (!activeCompany && companies.length) {
+    activeCompany = companies[0];
+    await User.updateOne({ _id: user._id }, { $set: { activeCompanyId: activeCompany._id } });
+    user.activeCompanyId = activeCompany._id;
+  }
+
+  if (activeCompany) {
+    await backfillLegacyCompanyData(user._id, activeCompany._id);
+  }
+
+  return {
+    companies,
+    activeCompany,
+  };
+}
+
+async function backfillLegacyCompanyData(userId, companyId) {
+  await Promise.all([
+    Account.updateMany(
+      { userId, companyId: { $exists: false } },
+      { $set: { companyId } },
+    ),
+    JournalEntry.updateMany(
+      { userId, companyId: { $exists: false } },
+      { $set: { companyId } },
+    ),
+  ]);
 }
 
 function sanitizeRequestBody(req, res, next) {

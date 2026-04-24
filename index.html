@@ -95,6 +95,22 @@
           <p class="eyebrow" data-brand-eyebrow>AI Accounting</p>
           <h1 data-brand-name>LedgrAI</h1>
           <p class="sidebar-brand-copy">Smart books, reporting, and setup in one workspace.</p>
+          <div class="company-switcher">
+            <button
+              class="company-switcher-button"
+              id="company-switcher-button"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded="false"
+            >
+              <span class="company-switcher-copy">
+                <span class="company-switcher-label">Active Company</span>
+                <strong id="sidebar-company-name">Select a company</strong>
+              </span>
+              <span class="company-switcher-arrow">&#9662;</span>
+            </button>
+            <div class="company-switcher-menu hidden" id="company-switcher-menu" role="menu"></div>
+          </div>
         </div>
         <nav class="sidebar-nav" aria-label="Primary">
           <button class="nav-item is-active" type="button" data-view-target="dashboard">
@@ -146,6 +162,7 @@
             <div>
               <p class="eyebrow" data-brand-eyebrow>AI Accounting</p>
               <h2 data-page-title>LedgrAI Workspace</h2>
+              <p class="active-company-indicator" id="header-company-indicator">No active company selected</p>
               <p class="hero-copy">
                 Navigate setup, bookkeeping, reporting, and AI support from one connected workspace.
               </p>
@@ -502,9 +519,14 @@
                 Review opening balances, posted transactions, running balances, and closing positions.
               </p>
             </div>
+            <div class="hero-actions">
+              <button class="secondary-button print-hide" id="print-ledger-button" type="button">
+                Export PDF
+              </button>
+            </div>
           </header>
 
-          <section class="panel table-panel">
+          <section class="panel table-panel" id="ledger-section">
             <div class="table-toolbar">
               <div>
                 <h3>General Ledger</h3>
@@ -534,7 +556,7 @@
             </div>
             <div class="hero-actions">
               <button class="secondary-button print-hide" id="print-trial-balance-button" type="button">
-                Print / Export PDF
+                Export PDF
               </button>
             </div>
           </header>
@@ -583,7 +605,7 @@
             </div>
             <div class="hero-actions">
               <button class="secondary-button print-hide" id="print-income-statement-button" type="button">
-                Print / Export PDF
+                Export PDF
               </button>
             </div>
           </header>
@@ -661,7 +683,7 @@
             </div>
             <div class="hero-actions">
               <button class="secondary-button print-hide" id="print-balance-sheet-button" type="button">
-                Print / Export PDF
+                Export PDF
               </button>
             </div>
           </header>
@@ -772,7 +794,7 @@
             </div>
             <div class="hero-actions">
               <button class="secondary-button print-hide" id="print-cash-flow-button" type="button">
-                Print / Export PDF
+                Export PDF
               </button>
             </div>
           </header>

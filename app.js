@@ -180,6 +180,8 @@ let currencyFormatter = new Intl.NumberFormat("en-US", {
 
 const state = {
   currentUser: null,
+  companies: [],
+  activeCompanyId: "",
   accounts: [],
   journalEntries: [],
   companySetup: getDefaultCompanySetup(),
@@ -189,6 +191,7 @@ const state = {
   currentView: "company-setup",
   sidebarCollapsed: false,
   mobileSidebarOpen: false,
+  companySwitcherOpen: false,
   assistantMessages: [],
   assistantPending: false,
   authView: "login",
@@ -233,7 +236,11 @@ const elements = {
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   brandNames: [...document.querySelectorAll("[data-brand-name]")],
   brandEyebrows: [...document.querySelectorAll("[data-brand-eyebrow]")],
+  companySwitcherButton: document.querySelector("#company-switcher-button"),
+  companySwitcherMenu: document.querySelector("#company-switcher-menu"),
+  sidebarCompanyName: document.querySelector("#sidebar-company-name"),
   pageTitle: document.querySelector("[data-page-title]"),
+  headerCompanyIndicator: document.querySelector("#header-company-indicator"),
   currentUserName: document.querySelector("#current-user-name"),
   logoutButton: document.querySelector("#logout-button"),
   navItems: [...document.querySelectorAll("[data-view-target]")],
@@ -282,6 +289,8 @@ const elements = {
   ledgerList: document.querySelector("#ledger-list"),
   ledgerEmptyState: document.querySelector("#ledger-empty-state"),
   ledgerStatus: document.querySelector("#ledger-status"),
+  printLedgerButton: document.querySelector("#print-ledger-button"),
+  ledgerSection: document.querySelector("#ledger-section"),
   trialBalanceTableBody: document.querySelector("#trial-balance-table-body"),
   trialBalanceTableFoot: document.querySelector("#trial-balance-table-foot"),
   trialBalanceEmptyState: document.querySelector("#trial-balance-empty-state"),
@@ -370,6 +379,8 @@ const elements = {
 };
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
+elements.companySwitcherButton.addEventListener("click", toggleCompanySwitcher);
+elements.companySwitcherMenu.addEventListener("click", handleCompanySwitcherAction);
 elements.showLoginTab.addEventListener("click", () => setAuthView("login"));
 elements.showRegisterTab.addEventListener("click", () => setAuthView("register"));
 elements.loginForm.addEventListener("submit", handleLoginSubmit);
@@ -391,16 +402,19 @@ elements.lineItemsList.addEventListener("input", handleLineItemChange);
 elements.lineItemsList.addEventListener("change", handleLineItemChange);
 elements.lineItemsList.addEventListener("click", handleLineItemClick);
 elements.printTrialBalanceButton.addEventListener("click", () =>
-  exportSectionToPdf(elements.trialBalanceSection, "Trial Balance"),
+  exportSectionToPdf("trial-balance"),
+);
+elements.printLedgerButton.addEventListener("click", () =>
+  exportSectionToPdf("ledger"),
 );
 elements.printIncomeStatementButton.addEventListener("click", () =>
-  exportSectionToPdf(elements.incomeStatementSection, "Income Statement"),
+  exportSectionToPdf("income-statement"),
 );
 elements.printBalanceSheetButton.addEventListener("click", () =>
-  exportSectionToPdf(elements.balanceSheetSection, "Balance Sheet"),
+  exportSectionToPdf("balance-sheet"),
 );
 elements.printCashFlowButton.addEventListener("click", () =>
-  exportSectionToPdf(elements.cashFlowSection, "Cash Flow Statement"),
+  exportSectionToPdf("cash-flow"),
 );
 elements.companySetupForm.addEventListener("submit", handleCompanySetupSubmit);
 elements.companySetupReset.addEventListener("click", resetCompanySetup);
@@ -427,6 +441,7 @@ elements.balanceSheetEquityList.addEventListener("click", handleBalanceSheetTogg
 elements.assistantForm.addEventListener("submit", handleAssistantSubmit);
 elements.assistantClearButton.addEventListener("click", clearAssistantChat);
 window.addEventListener("resize", handleWindowResize);
+document.addEventListener("click", handleDocumentClick);
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
@@ -445,16 +460,21 @@ async function bootApplication() {
     const session = await fetchCurrentSession();
     if (!session) {
       state.currentUser = null;
+      state.companies = [];
+      state.activeCompanyId = "";
       state.companySetup = getDefaultCompanySetup();
       state.accounts = syncOpeningBalanceEquityAccount([]);
       state.journalEntries = syncSystemJournalEntry([]);
       state.assistantMessages = [];
       state.setupBannerDismissed = false;
+      state.companySwitcherOpen = false;
       render();
       return;
     }
 
     state.currentUser = session.user;
+    state.companies = Array.isArray(session.companies) ? session.companies.map(normalizeCompanyRecord) : [];
+    state.activeCompanyId = session.activeCompanyId || "";
     startSectionLoading(workspaceStatusKeys);
     render();
     await initializeState();
@@ -468,10 +488,13 @@ async function bootApplication() {
     }
 
     state.currentUser = null;
+    state.companies = [];
+    state.activeCompanyId = "";
     state.companySetup = getDefaultCompanySetup();
     state.accounts = syncOpeningBalanceEquityAccount([]);
     state.journalEntries = syncSystemJournalEntry([]);
     state.setupBannerDismissed = false;
+    state.companySwitcherOpen = false;
     showAuthError(error.message);
     render();
   }
@@ -482,6 +505,10 @@ async function initializeState() {
   try {
     const bootstrap = await apiFetch("/api/bootstrap");
     state.currentUser = bootstrap.user;
+    state.companies = Array.isArray(bootstrap.companies)
+      ? bootstrap.companies.map(normalizeCompanyRecord)
+      : [];
+    state.activeCompanyId = bootstrap.activeCompanyId || "";
     state.companySetup = normalizeCompanySetup(bootstrap.company);
     state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(bootstrap.accounts) ? bootstrap.accounts : []);
     state.journalEntries = syncSystemJournalEntry(
@@ -492,6 +519,7 @@ async function initializeState() {
     state.mobileSidebarOpen = false;
     state.sidebarCollapsed = false;
     state.setupBannerDismissed = false;
+    state.companySwitcherOpen = false;
     updateCurrencyFormatter();
     syncAssistantOnboardingMessage();
     await ensureLocationSelectionsLoaded();
@@ -512,6 +540,8 @@ async function fetchCurrentSession() {
     return {
       user: payload.user,
       company: payload.company,
+      companies: payload.companies,
+      activeCompanyId: payload.activeCompanyId || "",
     };
   } catch (error) {
     if (error.status === 401) {
@@ -527,11 +557,14 @@ async function refreshWorkspaceData() {
   try {
     const payload = await apiFetch("/api/bootstrap");
     state.currentUser = payload.user;
+    state.companies = Array.isArray(payload.companies) ? payload.companies.map(normalizeCompanyRecord) : [];
+    state.activeCompanyId = payload.activeCompanyId || "";
     state.companySetup = normalizeCompanySetup(payload.company);
     state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(payload.accounts) ? payload.accounts : []);
     state.journalEntries = syncSystemJournalEntry(
       Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
     );
+    state.companySwitcherOpen = false;
     updateCurrencyFormatter();
     await syncCompanySetupFields(payload.company);
     clearSectionErrors(workspaceStatusKeys);
@@ -541,6 +574,72 @@ async function refreshWorkspaceData() {
   } finally {
     finishSectionLoading(workspaceStatusKeys);
     render();
+  }
+}
+
+async function switchActiveCompany(companyId) {
+  if (!companyId || companyId === state.activeCompanyId) {
+    state.companySwitcherOpen = false;
+    renderCompanySwitcher();
+    return;
+  }
+
+  try {
+    startSectionLoading(workspaceStatusKeys);
+    render();
+    const response = await apiFetch(`/api/companies/${companyId}/select`, { method: "POST" });
+    state.activeCompanyId = response.activeCompanyId || companyId;
+    state.companySwitcherOpen = false;
+    await refreshWorkspaceData();
+    setActiveView("dashboard");
+    showToast("Company switched successfully");
+  } catch (error) {
+    finishSectionLoading(workspaceStatusKeys);
+    render();
+    showToast(`Unable to switch company. ${error.message}`, "error");
+  }
+}
+
+async function createAndSwitchCompany() {
+  try {
+    const response = await apiFetch("/api/companies", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    state.companies = Array.isArray(response.companies)
+      ? response.companies.map(normalizeCompanyRecord)
+      : state.companies;
+    state.activeCompanyId = response.activeCompanyId || response.company?.id || "";
+    state.companySetup = normalizeCompanySetup(response.company);
+    state.accounts = syncOpeningBalanceEquityAccount([]);
+    state.journalEntries = syncSystemJournalEntry([]);
+    state.assistantMessages = [];
+    state.setupBannerDismissed = false;
+    state.onboardingStepIndex = 0;
+    state.companySwitcherOpen = false;
+    updateCurrencyFormatter();
+    await syncCompanySetupFields(response.company);
+    setActiveView("company-setup");
+    showToast("New company created. Complete the setup to begin.");
+  } catch (error) {
+    showToast(`Unable to create a new company. ${error.message}`, "error");
+  }
+}
+
+function handleCompanySwitcherAction(event) {
+  const button = event.target instanceof Element ? event.target.closest("[data-company-action]") : null;
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const action = button.dataset.companyAction;
+  if (action === "switch") {
+    switchActiveCompany(button.dataset.companyId || "");
+    return;
+  }
+
+  if (action === "create") {
+    createAndSwitchCompany();
   }
 }
 
@@ -581,6 +680,7 @@ function normalizeCompanySetup(company) {
   return {
     ...fallback,
     ...companyData,
+    id: String(companyData?.id || fallback.id).trim(),
     companyName: String(companyData?.companyName || companyData?.name || fallback.companyName).trim(),
     industry: String(companyData?.industry || fallback.industry).trim(),
     businessType: String(companyData?.businessType || fallback.businessType).trim(),
@@ -592,6 +692,16 @@ function normalizeCompanySetup(company) {
     city: String(companyData?.city || fallback.city).trim(),
     financialYearStart: String(companyData?.financialYearStart || fallback.financialYearStart).trim(),
     currency: selectedCurrency?.code || fallback.currency,
+  };
+}
+
+function normalizeCompanyRecord(company) {
+  const normalized = normalizeCompanySetup(company);
+  return {
+    id: normalized.id,
+    name: normalized.companyName,
+    currency: normalized.currency,
+    industry: normalized.industry,
   };
 }
 
@@ -629,6 +739,14 @@ function getVisibleAccounts() {
 
 function getVisibleJournalEntries() {
   return state.journalEntries.filter((entry) => !entry.systemGenerated);
+}
+
+function getActiveCompany() {
+  return (
+    state.companies.find((company) => company.id === state.activeCompanyId) ||
+    state.companies.find((company) => company.id === state.companySetup.id) ||
+    null
+  );
 }
 
 function setSectionStatus(sectionKey, updates = {}) {
@@ -854,12 +972,15 @@ async function handleLogout() {
   } catch {}
 
   state.currentUser = null;
+  state.companies = [];
+  state.activeCompanyId = "";
   state.accounts = [];
   state.journalEntries = [];
   state.companySetup = getDefaultCompanySetup();
   state.assistantMessages = [];
   state.authView = "login";
   state.setupBannerDismissed = false;
+  state.companySwitcherOpen = false;
   render();
 }
 
@@ -871,6 +992,7 @@ function render() {
 
   renderNavigation();
   renderBranding();
+  renderCompanySwitcher();
   renderSetupBanners();
   renderDashboard();
   renderCompanySetup();
@@ -888,8 +1010,14 @@ function render() {
 function renderNavigation() {
   syncSidebarState();
   const viewTitle = getViewTitle(state.currentView);
+  const activeCompany = getActiveCompany();
   if (elements.pageTitle) {
     elements.pageTitle.textContent = `${appDisplayName} ${viewTitle}`;
+  }
+  if (elements.headerCompanyIndicator) {
+    elements.headerCompanyIndicator.textContent = activeCompany
+      ? `Viewing books for ${activeCompany.name || "Untitled Company"}`
+      : "No active company selected";
   }
   elements.navItems.forEach((item) => {
     item.classList.toggle("is-active", item.dataset.viewTarget === state.currentView);
@@ -902,10 +1030,34 @@ function renderNavigation() {
 
 function setActiveView(viewName) {
   state.currentView = viewName;
+  state.companySwitcherOpen = false;
   if (isMobileViewport()) {
     state.mobileSidebarOpen = false;
   }
   render();
+}
+
+function toggleCompanySwitcher(event) {
+  event.stopPropagation();
+  state.companySwitcherOpen = !state.companySwitcherOpen;
+  renderCompanySwitcher();
+}
+
+function handleDocumentClick(event) {
+  if (!state.companySwitcherOpen) {
+    return;
+  }
+
+  const target = event.target;
+  if (
+    target instanceof Element &&
+    (target.closest("#company-switcher-button") || target.closest("#company-switcher-menu"))
+  ) {
+    return;
+  }
+
+  state.companySwitcherOpen = false;
+  renderCompanySwitcher();
 }
 
 function toggleSidebar() {
@@ -926,7 +1078,8 @@ function syncSidebarState() {
 }
 
 function renderBranding() {
-  const companyName = state.companySetup.companyName.trim();
+  const activeCompany = getActiveCompany();
+  const companyName = state.companySetup.companyName.trim() || activeCompany?.name || "";
   const eyebrow = companyName ? `${companyName} Workspace` : defaultBrandEyebrow;
 
   document.title = appDisplayName;
@@ -936,6 +1089,53 @@ function renderBranding() {
   elements.brandEyebrows.forEach((element) => {
     element.textContent = eyebrow;
   });
+}
+
+function renderCompanySwitcher() {
+  const activeCompany = getActiveCompany();
+  if (elements.sidebarCompanyName) {
+    elements.sidebarCompanyName.textContent = activeCompany?.name || "Select a company";
+  }
+
+  if (elements.companySwitcherButton) {
+    elements.companySwitcherButton.setAttribute("aria-expanded", String(state.companySwitcherOpen));
+  }
+
+  if (!elements.companySwitcherMenu) {
+    return;
+  }
+
+  safeSetInnerHTML(elements.companySwitcherMenu, "");
+  elements.companySwitcherMenu.classList.toggle("hidden", !state.companySwitcherOpen);
+
+  state.companies.forEach((company) => {
+    const item = document.createElement("button");
+    item.className = `company-switcher-item${company.id === state.activeCompanyId ? " is-active" : ""}`;
+    item.type = "button";
+    item.dataset.companyAction = "switch";
+    item.dataset.companyId = company.id;
+    safeSetInnerHTML(
+      item,
+      `
+        <span class="company-switcher-item-label">${escapeHtml(company.name || "Untitled Company")}</span>
+        <span class="company-switcher-item-meta">${escapeHtml(company.currency || "NGN")}</span>
+      `,
+    );
+    elements.companySwitcherMenu.appendChild(item);
+  });
+
+  const addButton = document.createElement("button");
+  addButton.className = "company-switcher-item";
+  addButton.type = "button";
+  addButton.dataset.companyAction = "create";
+  safeSetInnerHTML(
+    addButton,
+    `
+      <span class="company-switcher-item-label">Add New Company</span>
+      <span class="company-switcher-item-meta">Start a fresh company setup flow</span>
+    `,
+  );
+  elements.companySwitcherMenu.appendChild(addButton);
 }
 
 function isSetupGateIncomplete() {
@@ -1245,9 +1445,13 @@ async function handleCompanySetupSubmit(event) {
       method: "PUT",
       body: JSON.stringify(payload),
     });
-    state.companySetup = normalizeCompanySetup(response);
+    state.activeCompanyId = response.activeCompanyId || state.activeCompanyId;
+    state.companies = Array.isArray(response.companies)
+      ? response.companies.map(normalizeCompanyRecord)
+      : state.companies;
+    state.companySetup = normalizeCompanySetup(response.company || response);
     updateCurrencyFormatter();
-    await syncCompanySetupFields(response);
+    await syncCompanySetupFields(response.company || response);
     syncAssistantOnboardingMessage();
     render();
     showToast("Company setup saved successfully");
@@ -1264,9 +1468,13 @@ async function resetCompanySetup() {
       method: "PUT",
       body: JSON.stringify(state.companySetup),
     });
-    state.companySetup = normalizeCompanySetup(response);
+    state.activeCompanyId = response.activeCompanyId || state.activeCompanyId;
+    state.companies = Array.isArray(response.companies)
+      ? response.companies.map(normalizeCompanyRecord)
+      : state.companies;
+    state.companySetup = normalizeCompanySetup(response.company || response);
     updateCurrencyFormatter();
-    await syncCompanySetupFields(response);
+    await syncCompanySetupFields(response.company || response);
     render();
     showToast("Company setup reset successfully");
   } catch (error) {
@@ -1380,6 +1588,7 @@ function getOnboardingSteps() {
 
 function getDefaultCompanySetup() {
   return {
+    id: "",
     companyName: "",
     industry: "",
     businessType: "",
@@ -1540,6 +1749,682 @@ function exportSectionToPdf(sectionElement, title) {
   printWindow.onload = () => {
     printWindow.print();
   };
+}
+
+function exportSectionToPdf(reportKey) {
+  const report = buildPrintableReport(reportKey);
+  if (!report) {
+    showToast("This report is not available for export.", "error");
+    return;
+  }
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+  if (!printWindow) {
+    window.alert("Allow pop-ups to export this statement as PDF.");
+    return;
+  }
+
+  const filename = buildPdfFilename(report.title, report.filenameDate);
+  printWindow.document.write(buildPrintableReportDocument(report, filename));
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.onload = () => {
+    printWindow.document.title = filename;
+    printWindow.print();
+  };
+}
+
+function buildPrintableReport(reportKey) {
+  const period = getPrintableReportPeriod(reportKey);
+
+  if (reportKey === "trial-balance") {
+    const report = buildTrialBalanceReport();
+    return {
+      title: "Trial Balance",
+      periodLabel: period.label,
+      filenameDate: period.filenameDate,
+      summaryHtml: buildPrintableSummaryGrid([
+        { label: "Total Debits", value: currencyFormatter.format(report.totalDebits) },
+        { label: "Total Credits", value: currencyFormatter.format(report.totalCredits) },
+        { label: "Closing Debits", value: currencyFormatter.format(report.totalClosingDebits) },
+        { label: "Closing Credits", value: currencyFormatter.format(report.totalClosingCredits) },
+      ]),
+      bodyHtml: buildPrintableTrialBalanceBody(report),
+    };
+  }
+
+  if (reportKey === "income-statement") {
+    const report = buildIncomeStatementReport();
+    return {
+      title: "Income Statement",
+      periodLabel: period.label,
+      filenameDate: period.filenameDate,
+      summaryHtml: buildPrintableSummaryGrid([
+        { label: "Revenue", value: currencyFormatter.format(report.totalRevenue) },
+        { label: "Gross Profit", value: currencyFormatter.format(report.grossProfit) },
+        { label: "Operating Expenses", value: currencyFormatter.format(report.operatingExpenses) },
+        { label: "Net Income", value: currencyFormatter.format(report.netIncome) },
+      ]),
+      bodyHtml: buildPrintableIncomeStatementBody(report),
+    };
+  }
+
+  if (reportKey === "balance-sheet") {
+    const report = buildBalanceSheetReport();
+    return {
+      title: "Balance Sheet",
+      periodLabel: period.label,
+      filenameDate: period.filenameDate,
+      summaryHtml: buildPrintableSummaryGrid([
+        { label: "Total Assets", value: currencyFormatter.format(report.totalAssets) },
+        { label: "Total Liabilities", value: currencyFormatter.format(report.totalLiabilities) },
+        { label: "Total Equity", value: currencyFormatter.format(report.totalEquity) },
+        { label: "Difference", value: currencyFormatter.format(report.difference) },
+      ]),
+      bodyHtml: buildPrintableBalanceSheetBody(report),
+    };
+  }
+
+  if (reportKey === "cash-flow") {
+    const report = buildCashFlowStatementReport();
+    return {
+      title: "Cash Flow Statement",
+      periodLabel: period.label,
+      filenameDate: period.filenameDate,
+      summaryHtml: buildPrintableSummaryGrid([
+        { label: "Opening Cash", value: currencyFormatter.format(report.openingCash) },
+        { label: "Net Movement", value: currencyFormatter.format(report.netCashMovement) },
+        { label: "Closing Cash", value: currencyFormatter.format(report.closingCash) },
+        { label: "Balance Check", value: currencyFormatter.format(report.balanceCheck) },
+      ]),
+      bodyHtml: buildPrintableCashFlowBody(report),
+    };
+  }
+
+  if (reportKey === "ledger") {
+    const ledgers = buildGeneralLedger();
+    return {
+      title: "General Ledger",
+      periodLabel: period.label,
+      filenameDate: period.filenameDate,
+      summaryHtml: buildPrintableSummaryGrid([
+        { label: "Accounts", value: String(ledgers.length) },
+        { label: "Journal Entries", value: String(getVisibleJournalEntries().length) },
+        {
+          label: "Posted Lines",
+          value: String(getVisibleJournalEntries().reduce((sum, entry) => sum + entry.lineItems.length, 0)),
+        },
+      ]),
+      bodyHtml: buildPrintableLedgerBody(ledgers),
+    };
+  }
+
+  return null;
+}
+
+function buildPrintableReportDocument(report, filename) {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${escapeHtml(filename)}</title>
+        <style>
+          :root {
+            --brand: #047857;
+            --brand-dark: #064e3b;
+            --ink: #0f172a;
+            --muted: #475569;
+            --line: #d7dee7;
+            --panel: #f8fafc;
+          }
+          * { box-sizing: border-box; }
+          @page { size: A4; margin: 18mm 14mm 18mm; }
+          body {
+            margin: 0;
+            color: var(--ink);
+            font-family: Inter, Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.55;
+            background: #ffffff;
+          }
+          .print-shell {
+            display: grid;
+            gap: 18px;
+            padding-bottom: 20mm;
+          }
+          .print-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+            align-items: flex-start;
+            padding-bottom: 14px;
+            border-bottom: 2px solid var(--brand);
+          }
+          .brand-lockup {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+          }
+          .brand-mark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 52px;
+            height: 52px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+            color: #ffffff;
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+          }
+          .brand-copy h1 {
+            margin: 0 0 4px;
+            font-size: 24px;
+            line-height: 1.2;
+          }
+          .brand-copy p, .meta-block p, .company-meta p, .summary-card p, .report-note {
+            margin: 0;
+            color: var(--muted);
+          }
+          .meta-block {
+            text-align: right;
+          }
+          .meta-block h2 {
+            margin: 0 0 6px;
+            font-size: 20px;
+            line-height: 1.2;
+          }
+          .company-card, .summary-grid, .print-section {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: #ffffff;
+          }
+          .company-card, .print-section {
+            padding: 16px;
+          }
+          .company-card h3, .print-section h3 {
+            margin: 0 0 8px;
+            font-size: 15px;
+          }
+          .company-meta {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px 18px;
+          }
+          .meta-label {
+            display: block;
+            margin-bottom: 2px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+          .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            overflow: hidden;
+          }
+          .summary-card {
+            padding: 14px 16px;
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+          }
+          .summary-card:last-child {
+            border-right: 0;
+          }
+          .summary-card strong {
+            display: block;
+            margin-top: 4px;
+            font-size: 16px;
+          }
+          .report-table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          .report-table th, .report-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--line);
+            vertical-align: top;
+          }
+          .report-table th {
+            background: var(--panel);
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            text-align: left;
+          }
+          .report-table td.numeric, .report-table th.numeric {
+            text-align: right;
+            white-space: nowrap;
+          }
+          .report-table tr.total-row td {
+            font-weight: 800;
+            background: #f0fdf4;
+          }
+          .report-table tr.section-row td {
+            font-weight: 800;
+            color: var(--brand-dark);
+            background: #ecfdf5;
+          }
+          .report-section-stack {
+            display: grid;
+            gap: 14px;
+          }
+          .print-footer {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 6mm 14mm 0;
+            border-top: 1px solid var(--line);
+            background: #ffffff;
+            color: var(--muted);
+            font-size: 11px;
+          }
+          .print-page-number::after { content: counter(page); }
+          .no-break { break-inside: avoid; page-break-inside: avoid; }
+          @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-shell">
+          <header class="print-header">
+            <div class="brand-lockup">
+              <div class="brand-mark">LA</div>
+              <div class="brand-copy">
+                <h1>${escapeHtml(appDisplayName)}</h1>
+                <p>AI accounting workspace</p>
+              </div>
+            </div>
+            <div class="meta-block">
+              <h2>${escapeHtml(report.title)}</h2>
+              <p>${escapeHtml(report.periodLabel)}</p>
+              <p>Generated ${escapeHtml(new Date().toLocaleString())}</p>
+            </div>
+          </header>
+          ${buildPrintableCompanyCard()}
+          ${report.summaryHtml}
+          ${report.bodyHtml}
+        </div>
+        <footer class="print-footer">
+          <span>Generated by LedgrAI</span>
+          <span>Page <span class="print-page-number"></span></span>
+        </footer>
+      </body>
+    </html>
+  `;
+}
+
+function buildPrintableCompanyCard() {
+  const company = state.companySetup;
+  const activeCompany = getActiveCompany();
+  const companyName = company.companyName || activeCompany?.name || "Unnamed Company";
+  const companyLocation = [company.city, company.stateProvince, company.country].filter(Boolean).join(", ");
+  const companyAddress = [company.address, companyLocation].filter(Boolean).join(", ");
+  const currency = getCurrencyMeta(company.currency);
+
+  return `
+    <section class="company-card">
+      <h3>${escapeHtml(companyName)}</h3>
+      <div class="company-meta">
+        <div>
+          <span class="meta-label">Business Type</span>
+          <p>${escapeHtml(company.businessType || "Not specified")}</p>
+        </div>
+        <div>
+          <span class="meta-label">Industry</span>
+          <p>${escapeHtml(company.industry || "Not specified")}</p>
+        </div>
+        <div>
+          <span class="meta-label">Address</span>
+          <p>${escapeHtml(companyAddress || "Not specified")}</p>
+        </div>
+        <div>
+          <span class="meta-label">Contact</span>
+          <p>${escapeHtml([company.phone, company.email].filter(Boolean).join(" | ") || "Not specified")}</p>
+        </div>
+        <div>
+          <span class="meta-label">Reporting Currency</span>
+          <p>${escapeHtml(currency ? `${currency.code} ${currency.symbol} | ${currency.name}` : company.currency || "NGN")}</p>
+        </div>
+        <div>
+          <span class="meta-label">Financial Year Start</span>
+          <p>${escapeHtml(company.financialYearStart ? formatDate(company.financialYearStart) : "Not specified")}</p>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function buildPrintableSummaryGrid(items) {
+  const rows = (Array.isArray(items) ? items : [])
+    .filter((item) => item && item.label)
+    .map(
+      (item) => `
+        <section class="summary-card">
+          <p>${escapeHtml(item.label)}</p>
+          <strong>${escapeHtml(item.value || "—")}</strong>
+        </section>
+      `,
+    )
+    .join("");
+
+  return rows ? `<section class="summary-grid">${rows}</section>` : "";
+}
+
+function buildPrintableTrialBalanceBody(report) {
+  return `
+    <section class="print-section">
+      <h3>Trial Balance</h3>
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Account Name</th>
+            <th>Type</th>
+            <th class="numeric">Total Debits</th>
+            <th class="numeric">Total Credits</th>
+            <th class="numeric">Closing Debit</th>
+            <th class="numeric">Closing Credit</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            report.rows.length
+              ? report.rows
+                  .map(
+                    (row) => `
+                      <tr>
+                        <td>${escapeHtml(row.account.code)}</td>
+                        <td>${escapeHtml(row.account.name)}</td>
+                        <td>${escapeHtml(row.account.type)}</td>
+                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.totalDebits))}</td>
+                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.totalCredits))}</td>
+                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.closingDebit))}</td>
+                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.closingCredit))}</td>
+                      </tr>
+                    `,
+                  )
+                  .join("")
+              : '<tr><td colspan="7">No trial balance data available for this company.</td></tr>'
+          }
+          <tr class="total-row">
+            <td colspan="3">Totals</td>
+            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalDebits))}</td>
+            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalCredits))}</td>
+            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingDebits))}</td>
+            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingCredits))}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  `;
+}
+
+function buildPrintableIncomeStatementBody(report) {
+  return `
+    <section class="print-section">
+      <h3>Income Statement</h3>
+      <div class="report-section-stack">
+        ${buildPrintableSectionTable("Revenue", report.revenueAccounts, "Revenue Total", report.totalRevenue)}
+        ${buildPrintableSectionTable("Operating Expenses", report.expenseAccounts, "Operating Expenses Total", report.operatingExpenses)}
+        <table class="report-table">
+          <tbody>
+            <tr class="total-row">
+              <td>Gross Profit</td>
+              <td class="numeric">${escapeHtml(currencyFormatter.format(report.grossProfit))}</td>
+            </tr>
+            <tr class="total-row">
+              <td>Net Income / Loss</td>
+              <td class="numeric">${escapeHtml(currencyFormatter.format(report.netIncome))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function buildPrintableBalanceSheetBody(report) {
+  return `
+    <section class="print-section">
+      <h3>Balance Sheet</h3>
+      <div class="report-section-stack">
+        ${buildPrintableSectionTable("Assets", report.assetAccounts, "Total Assets", report.totalAssets)}
+        ${buildPrintableSectionTable("Liabilities", report.liabilityAccounts, "Total Liabilities", report.totalLiabilities)}
+        ${buildPrintableSectionTable(
+          "Equity",
+          [
+            ...report.equityAccounts,
+            {
+              account: { name: "Retained Earnings" },
+              amount: report.retainedEarnings,
+            },
+          ],
+          "Total Equity",
+          report.totalEquity,
+        )}
+      </div>
+    </section>
+  `;
+}
+
+function buildPrintableCashFlowBody(report) {
+  return `
+    <section class="print-section">
+      <h3>Cash Flow Statement</h3>
+      <div class="report-section-stack">
+        ${buildPrintableLineItemTable("Operating Activities", report.operatingItems, "Net Cash from Operating Activities", report.operatingTotal)}
+        ${buildPrintableLineItemTable("Investing Activities", report.investingItems, "Net Cash from Investing Activities", report.investingTotal)}
+        ${buildPrintableLineItemTable("Financing Activities", report.financingItems, "Net Cash from Financing Activities", report.financingTotal)}
+        <table class="report-table">
+          <tbody>
+            <tr class="total-row">
+              <td>Net Cash Movement</td>
+              <td class="numeric">${escapeHtml(currencyFormatter.format(report.netCashMovement))}</td>
+            </tr>
+            <tr class="total-row">
+              <td>Closing Cash</td>
+              <td class="numeric">${escapeHtml(currencyFormatter.format(report.closingCash))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function buildPrintableLedgerBody(ledgers) {
+  if (!ledgers.length) {
+    return `
+      <section class="print-section">
+        <h3>General Ledger</h3>
+        <p>No ledger activity available for this company.</p>
+      </section>
+    `;
+  }
+
+  return `
+    <div class="report-section-stack">
+      ${ledgers
+        .map(
+          (ledger) => `
+            <section class="print-section no-break">
+              <h3>${escapeHtml(ledger.account.code)} - ${escapeHtml(ledger.account.name)}</h3>
+              <p class="report-note">${escapeHtml(ledger.account.type)} account</p>
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th class="numeric">Debit</th>
+                    <th class="numeric">Credit</th>
+                    <th class="numeric">Running Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${ledger.lines
+                    .map(
+                      (line) => `
+                        <tr>
+                          <td>${escapeHtml(line.date)}</td>
+                          <td>${escapeHtml(line.description)}</td>
+                          <td class="numeric">${escapeHtml(line.debit ? currencyFormatter.format(line.debit) : "—")}</td>
+                          <td class="numeric">${escapeHtml(line.credit ? currencyFormatter.format(line.credit) : "—")}</td>
+                          <td class="numeric">${escapeHtml(formatLedgerBalance(line.runningBalance, ledger.account.type))}</td>
+                        </tr>
+                      `,
+                    )
+                    .join("")}
+                  <tr class="total-row">
+                    <td colspan="4">Closing Balance</td>
+                    <td class="numeric">${escapeHtml(formatLedgerBalance(ledger.closingBalance, ledger.account.type))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function buildPrintableSectionTable(title, rows, totalLabel, totalAmount) {
+  return `
+    <table class="report-table">
+      <tbody>
+        <tr class="section-row">
+          <td>${escapeHtml(title)}</td>
+          <td class="numeric">Amount</td>
+        </tr>
+        ${
+          Array.isArray(rows) && rows.length
+            ? rows
+                .map(
+                  (row) => `
+                    <tr>
+                      <td>${escapeHtml(row.account?.name || "Untitled")}</td>
+                      <td class="numeric">${escapeHtml(currencyFormatter.format(row.amount || 0))}</td>
+                    </tr>
+                  `,
+                )
+                .join("")
+            : `<tr><td colspan="2">No data available.</td></tr>`
+        }
+        <tr class="total-row">
+          <td>${escapeHtml(totalLabel)}</td>
+          <td class="numeric">${escapeHtml(currencyFormatter.format(totalAmount || 0))}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+function buildPrintableLineItemTable(title, rows, totalLabel, totalAmount) {
+  return `
+    <table class="report-table">
+      <tbody>
+        <tr class="section-row">
+          <td>${escapeHtml(title)}</td>
+          <td class="numeric">Amount</td>
+        </tr>
+        ${
+          Array.isArray(rows) && rows.length
+            ? rows
+                .map(
+                  (row) => `
+                    <tr>
+                      <td>${escapeHtml(row.label || "Untitled")}</td>
+                      <td class="numeric">${escapeHtml(currencyFormatter.format(row.amount || 0))}</td>
+                    </tr>
+                  `,
+                )
+                .join("")
+            : `<tr><td colspan="2">No data available.</td></tr>`
+        }
+        <tr class="total-row">
+          <td>${escapeHtml(totalLabel)}</td>
+          <td class="numeric">${escapeHtml(currencyFormatter.format(totalAmount || 0))}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+function getPrintableReportPeriod(reportKey) {
+  const dates = getVisibleJournalEntries()
+    .map((entry) => entry.date)
+    .filter(Boolean)
+    .sort();
+  const today = getTodayDate();
+  const startDate = dates[0] || state.companySetup.financialYearStart || today;
+  const endDate = dates[dates.length - 1] || today;
+
+  if (reportKey === "balance-sheet" || reportKey === "trial-balance" || reportKey === "ledger") {
+    return {
+      label: `As of ${formatDate(endDate)}`,
+      filenameDate: endDate,
+    };
+  }
+
+  if (!dates.length) {
+    return {
+      label: `As of ${formatDate(endDate)}`,
+      filenameDate: endDate,
+    };
+  }
+
+  return {
+    label: `${formatDate(startDate)} to ${formatDate(endDate)}`,
+    filenameDate: endDate,
+  };
+}
+
+function buildPdfFilename(reportTitle, dateValue) {
+  const companyName = sanitizeFilenameSegment(state.companySetup.companyName || "LedgrAI");
+  const titleName = sanitizeFilenameSegment(reportTitle);
+  const dateName = formatFilenameMonthYear(dateValue || getTodayDate());
+  return `${companyName}-${titleName}-${dateName}.pdf`;
+}
+
+function sanitizeFilenameSegment(value) {
+  const cleaned = String(value || "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim();
+  if (!cleaned) {
+    return "Report";
+  }
+
+  return cleaned
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+}
+
+function formatFilenameMonthYear(dateValue) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return "ReportDate";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  })
+    .format(date)
+    .replace(/\s+/g, "");
 }
 
 function syncAssistantOnboardingMessage() {
@@ -3334,11 +4219,20 @@ function buildAssistantFinancialContext() {
   const incomeStatement = buildIncomeStatementReport();
   const balanceSheet = buildBalanceSheetReport();
   const cashFlow = buildCashFlowStatementReport();
+  const activeCompany = getActiveCompany();
 
   return {
     generatedAt: new Date().toISOString(),
     appName: appDisplayName,
+    activeCompany: activeCompany
+      ? {
+          id: activeCompany.id,
+          name: activeCompany.name,
+          currency: activeCompany.currency,
+        }
+      : null,
     companySetup: {
+      id: state.companySetup.id,
       companyName: state.companySetup.companyName,
       industry: state.companySetup.industry,
       businessType: state.companySetup.businessType,

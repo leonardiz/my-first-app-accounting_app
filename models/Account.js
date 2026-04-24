@@ -8,6 +8,12 @@ const accountSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    companyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     code: {
       type: String,
       required: true,
@@ -33,6 +39,6 @@ const accountSchema = new mongoose.Schema(
   },
 );
 
-accountSchema.index({ userId: 1, code: 1 }, { unique: true });
+accountSchema.index({ userId: 1, companyId: 1, code: 1 }, { unique: true });
 
 module.exports = mongoose.models.Account || mongoose.model("Account", accountSchema);

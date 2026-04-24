@@ -430,6 +430,94 @@ th {
   margin-bottom: 0;
 }
 
+.company-switcher {
+  position: relative;
+  margin-top: 16px;
+}
+
+.company-switcher-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.company-switcher-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.company-switcher-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#sidebar-company-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.company-switcher-arrow {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.company-switcher-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 18px 32px rgba(15, 23, 42, 0.12);
+  z-index: 30;
+}
+
+.company-switcher-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.company-switcher-item:hover,
+.company-switcher-item.is-active {
+  background: rgba(22, 119, 255, 0.08);
+}
+
+.company-switcher-item-label {
+  font-weight: 700;
+}
+
+.company-switcher-item-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .sidebar-nav {
   display: grid;
   gap: 10px;
@@ -479,6 +567,7 @@ th {
 .app-shell.sidebar-collapsed .sidebar-brand .eyebrow,
 .app-shell.sidebar-collapsed .sidebar-brand h1,
 .app-shell.sidebar-collapsed .sidebar-brand-copy,
+.app-shell.sidebar-collapsed .company-switcher,
 .app-shell.sidebar-collapsed .nav-label {
   display: none;
 }
@@ -507,6 +596,13 @@ th {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.active-company-indicator {
+  margin-bottom: 8px;
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .user-badge {

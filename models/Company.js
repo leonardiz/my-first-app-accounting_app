@@ -7,7 +7,6 @@ const companySchema = new mongoose.Schema(
       ref: "User",
       required: true,
       index: true,
-      unique: true,
     },
     name: {
       type: String,
@@ -70,5 +69,7 @@ const companySchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+companySchema.index({ userId: 1, name: 1 });
 
 module.exports = mongoose.models.Company || mongoose.model("Company", companySchema);

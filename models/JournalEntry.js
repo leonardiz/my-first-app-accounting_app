@@ -27,6 +27,12 @@ const journalEntrySchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    companyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     date: {
       type: String,
       required: true,
