@@ -184,11 +184,13 @@ const state = {
   activeCompanyId: "",
   accounts: [],
   journalEntries: [],
+  invoices: [],
   companySetup: getDefaultCompanySetup(),
   companySetupMode: "edit",
   editingAccountId: null,
   editingJournalId: null,
   editingJournalDescriptionId: null,
+  editingInvoiceId: null,
   currentView: "company-setup",
   sidebarCollapsed: false,
   mobileSidebarOpen: false,
@@ -251,6 +253,8 @@ const elements = {
   dashboardNetIncome: document.querySelector("#dashboard-net-income"),
   dashboardTotalExpenses: document.querySelector("#dashboard-total-expenses"),
   dashboardAccountsPayable: document.querySelector("#dashboard-accounts-payable"),
+  dashboardOutstandingInvoices: document.querySelector("#dashboard-outstanding-invoices"),
+  dashboardOverdueInvoices: document.querySelector("#dashboard-overdue-invoices"),
   dashboardTransactions: document.querySelector("#dashboard-transactions"),
   dashboardEmptyState: document.querySelector("#dashboard-empty-state"),
   dashboardStatus: document.querySelector("#dashboard-status"),
@@ -377,6 +381,23 @@ const elements = {
   cancelJournalButton: document.querySelector("#cancel-journal-button"),
   closeJournalDialogButton: document.querySelector("#close-journal-dialog-button"),
   saveJournalButton: document.querySelector("#save-journal-button"),
+  invoiceForm: document.querySelector("#invoice-form"),
+  invoiceNumber: document.querySelector("#invoice-number"),
+  invoiceStatus: document.querySelector("#invoice-status"),
+  invoiceClientName: document.querySelector("#invoice-client-name"),
+  invoiceClientEmail: document.querySelector("#invoice-client-email"),
+  invoiceDate: document.querySelector("#invoice-date"),
+  invoiceDueDate: document.querySelector("#invoice-due-date"),
+  invoiceLineItems: document.querySelector("#invoice-line-items"),
+  addInvoiceLineButton: document.querySelector("#add-invoice-line-button"),
+  invoiceSubtotal: document.querySelector("#invoice-subtotal"),
+  invoiceTaxPercentage: document.querySelector("#invoice-tax-percentage"),
+  invoiceTotalAmount: document.querySelector("#invoice-total-amount"),
+  invoiceFormError: document.querySelector("#invoice-form-error"),
+  invoiceResetButton: document.querySelector("#invoice-reset-button"),
+  invoiceTableWrapper: document.querySelector("#invoice-table-wrapper"),
+  invoiceTableBody: document.querySelector("#invoice-table-body"),
+  invoiceEmptyState: document.querySelector("#invoice-empty-state"),
 };
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
@@ -433,6 +454,14 @@ elements.onboardingPrevButton.addEventListener("click", goToPreviousOnboardingSt
 elements.onboardingNextButton.addEventListener("click", goToNextOnboardingStep);
 elements.journalTableBody.addEventListener("click", handleJournalTableAction);
 elements.journalTableBody.addEventListener("keydown", handleJournalDescriptionKeydown);
+elements.invoiceForm.addEventListener("submit", handleInvoiceSubmit);
+elements.invoiceResetButton.addEventListener("click", resetInvoiceForm);
+elements.addInvoiceLineButton.addEventListener("click", () => addInvoiceLineItemRow());
+elements.invoiceLineItems.addEventListener("input", handleInvoiceLineItemInput);
+elements.invoiceLineItems.addEventListener("click", handleInvoiceLineItemClick);
+elements.invoiceStatus.addEventListener("change", renderInvoiceNumberPreview);
+elements.invoiceTaxPercentage.addEventListener("input", renderInvoiceTotals);
+elements.invoiceTableBody.addEventListener("click", handleInvoiceTableAction);
 elements.navItems.forEach((item) =>
   item.addEventListener("click", () => setActiveView(item.dataset.viewTarget)),
 );
@@ -467,6 +496,8 @@ async function bootApplication() {
       state.companySetupMode = "edit";
       state.accounts = syncOpeningBalanceEquityAccount([]);
       state.journalEntries = syncSystemJournalEntry([]);
+      state.invoices = [];
+      state.editingInvoiceId = null;
       state.assistantMessages = [];
       state.setupBannerDismissed = false;
       state.companySwitcherOpen = false;
@@ -496,6 +527,8 @@ async function bootApplication() {
     state.companySetupMode = "edit";
     state.accounts = syncOpeningBalanceEquityAccount([]);
     state.journalEntries = syncSystemJournalEntry([]);
+    state.invoices = [];
+    state.editingInvoiceId = null;
     state.setupBannerDismissed = false;
     state.companySwitcherOpen = false;
     showAuthError(error.message);
@@ -518,6 +551,8 @@ async function initializeState() {
     state.journalEntries = syncSystemJournalEntry(
       Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
     );
+    state.invoices = Array.isArray(bootstrap.invoices) ? bootstrap.invoices.map(normalizeInvoiceRecord) : [];
+    state.editingInvoiceId = null;
     state.assistantMessages = [];
     state.currentView = "dashboard";
     state.mobileSidebarOpen = false;
@@ -528,6 +563,7 @@ async function initializeState() {
     syncAssistantOnboardingMessage();
     await ensureLocationSelectionsLoaded();
     await syncCompanySetupFields();
+    resetInvoiceForm();
     clearSectionErrors(workspaceStatusKeys);
   } catch (error) {
     applyWorkspaceLoadError(error);
@@ -569,9 +605,14 @@ async function refreshWorkspaceData() {
     state.journalEntries = syncSystemJournalEntry(
       Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
     );
+    state.invoices = Array.isArray(payload.invoices) ? payload.invoices.map(normalizeInvoiceRecord) : [];
+    state.editingInvoiceId = null;
     state.companySwitcherOpen = false;
     updateCurrencyFormatter();
     await syncCompanySetupFields(payload.company);
+    if (!state.editingInvoiceId) {
+      resetInvoiceForm();
+    }
     clearSectionErrors(workspaceStatusKeys);
   } catch (error) {
     applyWorkspaceLoadError(error);
@@ -695,6 +736,31 @@ function normalizeCompanyRecord(company) {
     name: normalized.companyName,
     currency: normalized.currency,
     industry: normalized.industry,
+  };
+}
+
+function normalizeInvoiceRecord(invoice) {
+  const lineItems = Array.isArray(invoice?.lineItems)
+    ? invoice.lineItems.map((line) => ({
+        description: String(line?.description || "").trim(),
+        quantity: Number(line?.quantity) || 0,
+        unitPrice: Number(line?.unitPrice) || 0,
+        amount: Number(line?.amount) || 0,
+      }))
+    : [];
+
+  return {
+    id: String(invoice?.id || "").trim(),
+    invoiceNumber: String(invoice?.invoiceNumber || "").trim(),
+    clientName: String(invoice?.clientName || "").trim(),
+    clientEmail: String(invoice?.clientEmail || "").trim(),
+    invoiceDate: String(invoice?.invoiceDate || "").trim(),
+    dueDate: String(invoice?.dueDate || "").trim(),
+    lineItems,
+    subtotal: Number(invoice?.subtotal) || 0,
+    taxPercentage: Number(invoice?.taxPercentage) || 0,
+    totalAmount: Number(invoice?.totalAmount) || 0,
+    status: String(invoice?.status || "Draft").trim() || "Draft",
   };
 }
 
@@ -989,6 +1055,7 @@ function render() {
   renderSetupBanners();
   renderDashboard();
   renderCompanySetup();
+  renderInvoices();
   renderAccountsTable();
   renderJournalTable();
   renderGeneralLedger();
@@ -1177,6 +1244,8 @@ function renderDashboard() {
   const incomeStatement = buildIncomeStatementReport();
   const monthlyNetIncome = buildCurrentMonthNetIncome();
   const accountsPayable = buildAccountsPayableBalance();
+  const outstandingInvoices = getOutstandingInvoicesTotal();
+  const overdueInvoices = getOverdueInvoicesCount();
   const recentTransactions = getVisibleJournalEntries()
     .slice()
     .sort((left, right) => new Date(right.date) - new Date(left.date))
@@ -1187,6 +1256,8 @@ function renderDashboard() {
   elements.dashboardNetIncome.classList.toggle("negative", monthlyNetIncome < 0);
   elements.dashboardTotalExpenses.textContent = currencyFormatter.format(incomeStatement.operatingExpenses);
   elements.dashboardAccountsPayable.textContent = currencyFormatter.format(accountsPayable);
+  elements.dashboardOutstandingInvoices.textContent = currencyFormatter.format(outstandingInvoices);
+  elements.dashboardOverdueInvoices.textContent = String(overdueInvoices);
   safeSetInnerHTML(elements.dashboardTransactions, "");
   elements.dashboardTransactions.classList.remove("hidden");
   renderSectionFeedback(elements.dashboardStatus, { visible: false });
@@ -1272,6 +1343,16 @@ function buildAccountsPayableBalance() {
       );
       return sum + Math.max(0, closingBalance);
     }, 0);
+}
+
+function getOutstandingInvoicesTotal() {
+  return state.invoices
+    .filter((invoice) => invoice.status === "Sent" || invoice.status === "Overdue")
+    .reduce((sum, invoice) => sum + (Number(invoice.totalAmount) || 0), 0);
+}
+
+function getOverdueInvoicesCount() {
+  return state.invoices.filter((invoice) => invoice.status === "Overdue").length;
 }
 
 function renderCompanySetup() {
@@ -1542,6 +1623,391 @@ async function resetCompanySetup() {
   }
 }
 
+function renderInvoices() {
+  if (!elements.invoiceForm) {
+    return;
+  }
+
+  if (!elements.invoiceLineItems.children.length && !state.editingInvoiceId) {
+    resetInvoiceForm();
+  }
+
+  renderInvoiceNumberPreview();
+  renderInvoiceTotals();
+  safeSetInnerHTML(elements.invoiceTableBody, "");
+
+  if (!state.invoices.length) {
+    elements.invoiceTableWrapper.classList.add("hidden");
+    elements.invoiceEmptyState.classList.remove("hidden");
+    return;
+  }
+
+  elements.invoiceTableWrapper.classList.remove("hidden");
+  elements.invoiceEmptyState.classList.add("hidden");
+
+  state.invoices
+    .slice()
+    .sort((left, right) => new Date(right.invoiceDate) - new Date(left.invoiceDate))
+    .forEach((invoice) => {
+      const row = document.createElement("tr");
+      safeSetInnerHTML(
+        row,
+        `
+          <td>
+            <strong>${escapeHtml(invoice.invoiceNumber)}</strong>
+          </td>
+          <td>
+            <strong>${escapeHtml(invoice.clientName)}</strong>
+            <div class="ledger-note">${escapeHtml(invoice.clientEmail || "No email")}</div>
+          </td>
+          <td><span class="status-badge invoice-status-${escapeHtml(normalizeString(invoice.status))}">${escapeHtml(invoice.status)}</span></td>
+          <td>${escapeHtml(formatDate(invoice.invoiceDate))}</td>
+          <td>${escapeHtml(formatDate(invoice.dueDate))}</td>
+          <td class="numeric">${escapeHtml(currencyFormatter.format(invoice.totalAmount))}</td>
+          <td>
+            <div class="table-actions">
+              <button class="ghost-button" type="button" data-action="edit-invoice" data-id="${invoice.id}">Edit</button>
+              <button class="ghost-button" type="button" data-action="mark-paid-invoice" data-id="${invoice.id}">Mark as Paid</button>
+              <button class="ghost-button" type="button" data-action="export-invoice" data-id="${invoice.id}">Export PDF</button>
+              <button class="ghost-button danger" type="button" data-action="delete-invoice" data-id="${invoice.id}">Delete</button>
+            </div>
+          </td>
+        `,
+      );
+      elements.invoiceTableBody.appendChild(row);
+    });
+}
+
+function renderInvoiceNumberPreview() {
+  if (!elements.invoiceNumber) {
+    return;
+  }
+
+  const editingInvoice = getEditingInvoice();
+  elements.invoiceNumber.value = editingInvoice?.invoiceNumber || getNextInvoiceNumberPreview();
+}
+
+function getNextInvoiceNumberPreview() {
+  const maxSequence = state.invoices.reduce((maxValue, invoice) => {
+    const match = invoice.invoiceNumber.match(/(\d+)$/);
+    return match ? Math.max(maxValue, Number(match[1])) : maxValue;
+  }, 0);
+  return `INV-${String(maxSequence + 1).padStart(4, "0")}`;
+}
+
+function createEmptyInvoiceLineItem() {
+  return {
+    description: "",
+    quantity: 1,
+    unitPrice: 0,
+    amount: 0,
+  };
+}
+
+function addInvoiceLineItemRow(line = createEmptyInvoiceLineItem()) {
+  const row = document.createElement("div");
+  row.className = "line-item-row invoice-line-row";
+  safeSetInnerHTML(
+    row,
+    `
+      <label class="full-span">
+        <span>Description</span>
+        <input class="invoice-line-description" type="text" value="${escapeHtml(line.description || "")}" />
+      </label>
+      <label>
+        <span>Quantity</span>
+        <input class="invoice-line-quantity" type="number" min="0" step="0.01" value="${escapeHtml(String(line.quantity ?? 1))}" />
+      </label>
+      <label>
+        <span>Unit Price</span>
+        <input class="invoice-line-unit-price" type="number" min="0" step="0.01" value="${escapeHtml(String(line.unitPrice ?? 0))}" />
+      </label>
+      <label>
+        <span>Amount</span>
+        <input class="invoice-line-amount" type="text" readonly value="${escapeHtml(currencyFormatter.format(Number(line.amount) || 0))}" />
+      </label>
+      <button class="line-remove-button" type="button">Remove</button>
+    `,
+  );
+  elements.invoiceLineItems.appendChild(row);
+  syncInvoiceLineAmount(row);
+}
+
+function handleInvoiceLineItemInput(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+
+  const row = target.closest(".invoice-line-row");
+  if (!row) {
+    return;
+  }
+
+  syncInvoiceLineAmount(row);
+  renderInvoiceTotals();
+}
+
+function handleInvoiceLineItemClick(event) {
+  const target = event.target instanceof Element ? event.target.closest(".line-remove-button") : null;
+  if (!(target instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  target.closest(".invoice-line-row")?.remove();
+  if (!elements.invoiceLineItems.children.length) {
+    addInvoiceLineItemRow();
+  }
+  renderInvoiceTotals();
+}
+
+function syncInvoiceLineAmount(row) {
+  const quantity = Number(row.querySelector(".invoice-line-quantity")?.value) || 0;
+  const unitPrice = Number(row.querySelector(".invoice-line-unit-price")?.value) || 0;
+  const amount = quantity * unitPrice;
+  const amountInput = row.querySelector(".invoice-line-amount");
+  if (amountInput instanceof HTMLInputElement) {
+    amountInput.value = currencyFormatter.format(amount);
+  }
+}
+
+function collectInvoiceLineItemsFromForm() {
+  return [...elements.invoiceLineItems.querySelectorAll(".invoice-line-row")]
+    .map((row) => ({
+      description: row.querySelector(".invoice-line-description")?.value.trim() || "",
+      quantity: Number(row.querySelector(".invoice-line-quantity")?.value) || 0,
+      unitPrice: Number(row.querySelector(".invoice-line-unit-price")?.value) || 0,
+    }))
+    .filter((line) => line.description || line.quantity > 0 || line.unitPrice > 0)
+    .map((line) => ({
+      ...line,
+      amount: line.quantity * line.unitPrice,
+    }));
+}
+
+function renderInvoiceTotals() {
+  const lineItems = collectInvoiceLineItemsFromForm();
+  const subtotal = lineItems.reduce((sum, line) => sum + line.amount, 0);
+  const taxPercentage = Number(elements.invoiceTaxPercentage.value) || 0;
+  const totalAmount = subtotal + subtotal * (taxPercentage / 100);
+
+  elements.invoiceSubtotal.value = currencyFormatter.format(subtotal);
+  elements.invoiceTotalAmount.value = currencyFormatter.format(totalAmount);
+}
+
+function resetInvoiceForm() {
+  if (!elements.invoiceForm) {
+    return;
+  }
+
+  state.editingInvoiceId = null;
+  elements.invoiceClientName.value = "";
+  elements.invoiceClientEmail.value = "";
+  elements.invoiceDate.value = getTodayDate();
+  elements.invoiceDueDate.value = getTodayDate();
+  elements.invoiceStatus.value = "Draft";
+  elements.invoiceTaxPercentage.value = "0";
+  safeSetInnerHTML(elements.invoiceLineItems, "");
+  addInvoiceLineItemRow();
+  renderInvoiceNumberPreview();
+  renderInvoiceTotals();
+  hideInvoiceError();
+}
+
+function getEditingInvoice() {
+  return state.invoices.find((invoice) => invoice.id === state.editingInvoiceId) || null;
+}
+
+function showInvoiceError(message) {
+  elements.invoiceFormError.textContent = message;
+  elements.invoiceFormError.classList.remove("hidden");
+}
+
+function hideInvoiceError() {
+  elements.invoiceFormError.textContent = "";
+  elements.invoiceFormError.classList.add("hidden");
+}
+
+async function handleInvoiceSubmit(event) {
+  event.preventDefault();
+  hideInvoiceError();
+  const isEditingInvoice = Boolean(state.editingInvoiceId);
+
+  const lineItems = collectInvoiceLineItemsFromForm();
+  const subtotal = lineItems.reduce((sum, line) => sum + line.amount, 0);
+  const taxPercentage = Number(elements.invoiceTaxPercentage.value) || 0;
+  const totalAmount = subtotal + subtotal * (taxPercentage / 100);
+  const payload = {
+    invoiceNumber: elements.invoiceNumber.value.trim(),
+    clientName: elements.invoiceClientName.value.trim(),
+    clientEmail: elements.invoiceClientEmail.value.trim(),
+    invoiceDate: elements.invoiceDate.value,
+    dueDate: elements.invoiceDueDate.value,
+    lineItems,
+    taxPercentage,
+    status: elements.invoiceStatus.value,
+    subtotal,
+    totalAmount,
+  };
+
+  if (!payload.clientName || !payload.invoiceDate || !payload.dueDate || !lineItems.length) {
+    showInvoiceError("Complete client details, invoice dates, and at least one line item.");
+    return;
+  }
+
+  try {
+    if (state.editingInvoiceId) {
+      await apiFetch(`/api/invoices/${state.editingInvoiceId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await apiFetch("/api/invoices", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
+
+    await refreshWorkspaceData();
+    setActiveView("invoices");
+    resetInvoiceForm();
+    showToast(isEditingInvoice ? "Invoice updated successfully" : "Invoice created successfully");
+  } catch (error) {
+    showInvoiceError(error.message);
+    showToast(`Unable to save invoice. ${error.message}`, "error");
+  }
+}
+
+function startEditingInvoice(invoice) {
+  if (!invoice) {
+    return;
+  }
+
+  state.editingInvoiceId = invoice.id;
+  elements.invoiceClientName.value = invoice.clientName;
+  elements.invoiceClientEmail.value = invoice.clientEmail;
+  elements.invoiceDate.value = invoice.invoiceDate;
+  elements.invoiceDueDate.value = invoice.dueDate;
+  elements.invoiceStatus.value = invoice.status === "Overdue" ? "Sent" : invoice.status;
+  elements.invoiceTaxPercentage.value = String(invoice.taxPercentage || 0);
+  safeSetInnerHTML(elements.invoiceLineItems, "");
+  invoice.lineItems.forEach((line) => addInvoiceLineItemRow(line));
+  renderInvoiceNumberPreview();
+  renderInvoiceTotals();
+  hideInvoiceError();
+  setActiveView("invoices");
+}
+
+async function handleInvoiceTableAction(event) {
+  const button = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const invoice = state.invoices.find((item) => item.id === button.dataset.id);
+  if (!invoice) {
+    return;
+  }
+
+  const action = button.dataset.action;
+  if (action === "edit-invoice") {
+    startEditingInvoice(invoice);
+    return;
+  }
+
+  if (action === "mark-paid-invoice") {
+    try {
+      await apiFetch(`/api/invoices/${invoice.id}/mark-paid`, { method: "POST" });
+      await refreshWorkspaceData();
+      setActiveView("invoices");
+      showToast("Invoice marked as paid");
+    } catch (error) {
+      showToast(`Unable to mark invoice as paid. ${error.message}`, "error");
+    }
+    return;
+  }
+
+  if (action === "export-invoice") {
+    exportInvoiceToPdf(invoice);
+    return;
+  }
+
+  if (action === "delete-invoice") {
+    if (!window.confirm(`Delete invoice "${invoice.invoiceNumber}"?`)) {
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/invoices/${invoice.id}`, { method: "DELETE" });
+      await refreshWorkspaceData();
+      if (state.editingInvoiceId === invoice.id) {
+        resetInvoiceForm();
+      }
+      setActiveView("invoices");
+      showToast("Invoice deleted successfully");
+    } catch (error) {
+      showToast(`Unable to delete invoice. ${error.message}`, "error");
+    }
+  }
+}
+
+function exportInvoiceToPdf(invoice) {
+  const jsPDFConstructor = window.jspdf?.jsPDF;
+  if (typeof jsPDFConstructor !== "function" || typeof jsPDFConstructor.API?.autoTable !== "function") {
+    showToast("PDF export library failed to load. Refresh and try again.", "error");
+    return;
+  }
+
+  const context = getPdfDocumentContext();
+  const doc = new jsPDFConstructor({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+  });
+  const marginX = 40;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text(appDisplayName, marginX, 34);
+  doc.setFontSize(16);
+  doc.text(`Invoice ${invoice.invoiceNumber}`, pageWidth - marginX, 34, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Company: ${context.companyName}`, marginX, 52);
+  doc.text(`Workspace: ${context.workspaceName}`, marginX, 66);
+  doc.text(`Client: ${invoice.clientName}`, marginX, 92);
+  doc.text(`Status: ${invoice.status}`, pageWidth - marginX, 52, { align: "right" });
+  doc.text(`Invoice Date: ${formatDate(invoice.invoiceDate)}`, pageWidth - marginX, 66, { align: "right" });
+  doc.text(`Due Date: ${formatDate(invoice.dueDate)}`, pageWidth - marginX, 80, { align: "right" });
+
+  doc.autoTable({
+    startY: 112,
+    head: [["Description", "Qty", "Unit Price", "Amount"]],
+    body: invoice.lineItems.map((line) => [
+      line.description,
+      String(line.quantity),
+      formatPdfCurrency(line.unitPrice),
+      formatPdfCurrency(line.amount),
+    ]),
+    foot: [
+      ["Subtotal", "", "", formatPdfCurrency(invoice.subtotal)],
+      ["Tax", "", "", `${invoice.taxPercentage}%`],
+      ["Total", "", "", formatPdfCurrency(invoice.totalAmount)],
+    ],
+    margin: { left: marginX, right: marginX, bottom: 44 },
+    columnStyles: buildNumericColumnStyles([1, 2, 3]),
+    headStyles: { fillColor: [4, 120, 87], textColor: [255, 255, 255] },
+    footStyles: { fillColor: [236, 253, 245], textColor: [6, 78, 59], fontStyle: "bold" },
+  });
+
+  doc.setFontSize(9);
+  doc.setTextColor(100, 116, 139);
+  doc.text("Generated by LedgrAI", marginX, pageHeight - 20);
+  doc.save(buildPdfFilename(`Invoice-${invoice.invoiceNumber}`, invoice.invoiceDate || getTodayDate()));
+}
+
 function handleCurrencySelectionInput() {
   const selectedCurrency = resolveCurrencySelection(elements.currencySelect.value);
   const hintText = selectedCurrency
@@ -1738,6 +2204,7 @@ function getViewTitle(viewName) {
   const titles = {
     dashboard: "Dashboard",
     "company-setup": "Company Setup",
+    invoices: "Invoices",
     chart: "Workspace",
     journal: "Journal Entries",
     ledger: "General Ledger",
@@ -3036,6 +3503,7 @@ function renderJournalTable() {
 
   sortedEntries.forEach((entry) => {
     const totals = calculateLineTotals(entry.lineItems);
+    const invoiceGenerated = entry.sourceType === "invoice";
     const descriptionMarkup =
       state.editingJournalDescriptionId === entry.id
         ? `
@@ -3055,7 +3523,7 @@ function renderJournalTable() {
           <div class="journal-entry-heading">
             <strong>${escapeHtml(entry.description)}</strong>
             ${
-              entry.systemGenerated
+              entry.systemGenerated || invoiceGenerated
                 ? ""
                 : `<button class="inline-edit-button" type="button" data-action="start-edit-journal-description" data-id="${entry.id}" aria-label="Edit journal entry description">Edit</button>`
             }
@@ -3087,15 +3555,15 @@ function renderJournalTable() {
       <td class="numeric">${entry.lineItems.length}</td>
       <td class="numeric">${currencyFormatter.format(totals.debits)}</td>
       <td>
-        <span class="status-badge ${entry.systemGenerated ? "balanced" : totals.balanced ? "balanced" : "unbalanced"}">
-          ${entry.systemGenerated ? "System" : totals.balanced ? "Balanced" : "Unbalanced"}
+        <span class="status-badge ${entry.systemGenerated || invoiceGenerated ? "balanced" : totals.balanced ? "balanced" : "unbalanced"}">
+          ${entry.systemGenerated ? "System" : invoiceGenerated ? "Invoice" : totals.balanced ? "Balanced" : "Unbalanced"}
         </span>
       </td>
       <td>
         <div class="table-actions">
           ${
-            entry.systemGenerated
-              ? '<span class="ledger-note">Managed automatically</span>'
+            entry.systemGenerated || invoiceGenerated
+              ? `<span class="ledger-note">${invoiceGenerated ? "Managed from invoice" : "Managed automatically"}</span>`
               : `<button class="ghost-button" type="button" data-action="edit-journal" data-id="${entry.id}">Edit</button>
                  <button class="ghost-button danger" type="button" data-action="delete-journal" data-id="${entry.id}">Delete</button>`
           }
@@ -3694,8 +4162,13 @@ async function handleJournalTableAction(event) {
   const { action, id } = button.dataset;
   const entry = state.journalEntries.find((item) => item.id === id);
 
-  if (entry?.systemGenerated && action !== "cancel-journal-description") {
-    showToast("This opening balance entry is system-generated and cannot be edited or deleted.", "error");
+  if ((entry?.systemGenerated || entry?.sourceType === "invoice") && action !== "cancel-journal-description") {
+    showToast(
+      entry?.sourceType === "invoice"
+        ? "This journal entry is managed from an invoice and cannot be edited here."
+        : "This opening balance entry is system-generated and cannot be edited or deleted.",
+      "error",
+    );
     return;
   }
 

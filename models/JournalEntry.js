@@ -43,6 +43,17 @@ const journalEntrySchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    sourceType: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    sourceId: {
+      type: String,
+      default: "",
+      trim: true,
+      index: true,
+    },
     lines: {
       type: [journalLineSchema],
       default: [],

@@ -11,6 +11,7 @@ const User = require("./models/User");
 const Company = require("./models/Company");
 const Account = require("./models/Account");
 const JournalEntry = require("./models/JournalEntry");
+const Invoice = require("./models/Invoice");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -173,7 +174,7 @@ app.get("/api/bootstrap", async (req, res) => {
   try {
     const { companies, activeCompany } = await resolveUserCompanies(req.user);
     const activeCompanyId = activeCompany?._id || null;
-    const [accounts, journalEntries] = activeCompanyId
+    const [accounts, journalEntries, invoices] = activeCompanyId
       ? await Promise.all([
           Account.find({ userId: req.user._id, companyId: activeCompanyId })
             .sort({ code: 1, name: 1 })
@@ -181,8 +182,11 @@ app.get("/api/bootstrap", async (req, res) => {
           JournalEntry.find({ userId: req.user._id, companyId: activeCompanyId })
             .sort({ date: -1, createdAt: -1 })
             .lean(),
+          Invoice.find({ userId: req.user._id, companyId: activeCompanyId })
+            .sort({ invoiceDate: -1, createdAt: -1 })
+            .lean(),
         ])
-      : [[], []];
+      : [[], [], []];
 
     return res.json({
       user: serializeUser(req.user),
@@ -191,6 +195,7 @@ app.get("/api/bootstrap", async (req, res) => {
       companies: companies.map(serializeCompany),
       accounts: accounts.map(serializeAccount),
       journalEntries: journalEntries.map(serializeJournalEntry),
+      invoices: invoices.map(serializeInvoice),
     });
   } catch (error) {
     return sendServerError(res, error, "Failed to load workspace data.");
@@ -356,6 +361,101 @@ app.delete("/api/accounts/:id", async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     return sendServerError(res, error, "Failed to delete account.");
+  }
+});
+
+app.post("/api/invoices", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const payload = await normalizeInvoicePayload(req.body || {});
+    const invoiceNumber = payload.invoiceNumber || (await generateNextInvoiceNumber(req.user._id, activeCompany._id));
+    const invoice = await Invoice.create({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      ...payload,
+      invoiceNumber,
+    });
+
+    await syncInvoiceJournalEntry(req.user._id, activeCompany._id, invoice);
+    return res.status(201).json({ invoice: serializeInvoice(invoice) });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ error: "Invoice number must be unique." });
+    }
+    return sendServerError(res, error, "Failed to create invoice.");
+  }
+});
+
+app.put("/api/invoices/:id", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const existingInvoice = await Invoice.findOne({
+      _id: req.params.id,
+      userId: req.user._id,
+      companyId: activeCompany._id,
+    });
+    if (!existingInvoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    const payload = await normalizeInvoicePayload(req.body || {}, { invoiceNumber: existingInvoice.invoiceNumber });
+    const invoice = await Invoice.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
+      { $set: { ...payload, invoiceNumber: existingInvoice.invoiceNumber } },
+      { new: true, runValidators: true },
+    );
+
+    await syncInvoiceJournalEntry(req.user._id, activeCompany._id, invoice);
+    return res.json({ invoice: serializeInvoice(invoice) });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ error: "Invoice number must be unique." });
+    }
+    return sendServerError(res, error, "Failed to update invoice.");
+  }
+});
+
+app.post("/api/invoices/:id/mark-paid", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const invoice = await Invoice.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
+      { $set: { status: "Paid" } },
+      { new: true },
+    );
+
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    await syncInvoiceJournalEntry(req.user._id, activeCompany._id, invoice);
+    return res.json({ invoice: serializeInvoice(invoice) });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to mark invoice as paid.");
+  }
+});
+
+app.delete("/api/invoices/:id", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const invoice = await Invoice.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.user._id,
+      companyId: activeCompany._id,
+    });
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    await JournalEntry.deleteMany({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      sourceType: "invoice",
+      sourceId: invoice._id.toString(),
+    });
+    return res.json({ success: true });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to delete invoice.");
   }
 });
 
@@ -598,11 +698,47 @@ function serializeJournalEntry(entry) {
     id: entry._id.toString(),
     date: entry.date,
     description: entry.description,
+    sourceType: entry.sourceType || "",
+    sourceId: entry.sourceId || "",
     lineItems: (entry.lines || []).map((line) => ({
       accountId: line.accountId.toString(),
       debit: Number(line.debit) || 0,
       credit: Number(line.credit) || 0,
     })),
+  };
+}
+
+function serializeInvoice(invoice) {
+  if (!invoice) {
+    return null;
+  }
+
+  const effectiveStatus =
+    invoice.status === "Paid"
+      ? "Paid"
+      : invoice.status === "Draft"
+        ? "Draft"
+        : isInvoiceOverdue(invoice.dueDate)
+          ? "Overdue"
+          : "Sent";
+
+  return {
+    id: invoice._id.toString(),
+    invoiceNumber: invoice.invoiceNumber || "",
+    clientName: invoice.clientName || "",
+    clientEmail: invoice.clientEmail || "",
+    invoiceDate: invoice.invoiceDate || "",
+    dueDate: invoice.dueDate || "",
+    lineItems: (invoice.lineItems || []).map((line) => ({
+      description: line.description || "",
+      quantity: Number(line.quantity) || 0,
+      unitPrice: Number(line.unitPrice) || 0,
+      amount: Number(line.amount) || 0,
+    })),
+    subtotal: Number(invoice.subtotal) || 0,
+    taxPercentage: Number(invoice.taxPercentage) || 0,
+    totalAmount: Number(invoice.totalAmount) || 0,
+    status: effectiveStatus,
   };
 }
 
@@ -661,6 +797,63 @@ async function normalizeJournalEntryPayload(payload, userId, companyId) {
     date: sanitizeDateInput(payload.date || ""),
     description: sanitizeText(payload.description || "", 240),
     lines,
+  };
+}
+
+async function normalizeInvoicePayload(payload, options = {}) {
+  const linesSource = Array.isArray(payload.lineItems) ? payload.lineItems : [];
+  const lineItems = linesSource
+    .map((line, index) => normalizeInvoiceLine(line, index))
+    .filter((line) => line.description || line.quantity > 0 || line.unitPrice > 0 || line.amount > 0);
+
+  if (!lineItems.length) {
+    throw createHttpError(400, "Invoice must include at least one line item.");
+  }
+
+  const subtotal = lineItems.reduce((sum, line) => sum + line.amount, 0);
+  const taxPercentage = parseNumberField(payload.taxPercentage, "Tax percentage");
+  const totalAmount = subtotal + subtotal * (taxPercentage / 100);
+  const requestedStatus = sanitizeText(payload.status || "Draft", 20);
+  const normalizedStatus =
+    requestedStatus === "Paid" ? "Paid" : requestedStatus === "Sent" || requestedStatus === "Overdue" ? "Sent" : "Draft";
+
+  return {
+    invoiceNumber: sanitizeUppercaseCode(payload.invoiceNumber || options.invoiceNumber || "", 32),
+    clientName: sanitizeText(payload.clientName || "", 120),
+    clientEmail: sanitizeEmail(payload.clientEmail || ""),
+    invoiceDate: sanitizeDateInput(payload.invoiceDate || ""),
+    dueDate: sanitizeDateInput(payload.dueDate || ""),
+    lineItems,
+    subtotal,
+    taxPercentage,
+    totalAmount,
+    status: normalizedStatus,
+  };
+}
+
+function normalizeInvoiceLine(line, index) {
+  const description = sanitizeText(line?.description || "", 240);
+  const quantity = parseNumberField(line?.quantity, `Invoice line ${index + 1} quantity`);
+  const unitPrice = parseNumberField(line?.unitPrice, `Invoice line ${index + 1} unit price`);
+  const amount = quantity * unitPrice;
+
+  if (!description) {
+    throw createHttpError(400, `Invoice line ${index + 1} description is required.`);
+  }
+
+  if (quantity <= 0) {
+    throw createHttpError(400, `Invoice line ${index + 1} quantity must be greater than zero.`);
+  }
+
+  if (unitPrice < 0) {
+    throw createHttpError(400, `Invoice line ${index + 1} unit price must be zero or greater.`);
+  }
+
+  return {
+    description,
+    quantity,
+    unitPrice,
+    amount,
   };
 }
 
@@ -741,7 +934,115 @@ async function backfillLegacyCompanyData(userId, companyId) {
       { userId, companyId: { $exists: false } },
       { $set: { companyId } },
     ),
+    Invoice.updateMany(
+      { userId, companyId: { $exists: false } },
+      { $set: { companyId } },
+    ),
   ]);
+}
+
+async function generateNextInvoiceNumber(userId, companyId) {
+  const latestInvoice = await Invoice.findOne({ userId, companyId })
+    .sort({ createdAt: -1, invoiceNumber: -1 })
+    .lean();
+
+  const lastSequenceMatch = latestInvoice?.invoiceNumber?.match(/(\d+)$/);
+  const nextSequence = lastSequenceMatch ? Number(lastSequenceMatch[1]) + 1 : 1;
+  return `INV-${String(nextSequence).padStart(4, "0")}`;
+}
+
+function isInvoiceOverdue(dueDate) {
+  if (!dueDate) {
+    return false;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  return dueDate < today;
+}
+
+async function ensureCompanyAccount(userId, companyId, config) {
+  const existingByName = await Account.findOne({
+    userId,
+    companyId,
+    name: config.name,
+    type: config.type,
+  });
+  if (existingByName) {
+    return existingByName;
+  }
+
+  let code = config.code;
+  let suffix = 1;
+  while (
+    await Account.exists({
+      userId,
+      companyId,
+      code,
+    })
+  ) {
+    suffix += 1;
+    code = `${config.code}-${suffix}`;
+  }
+
+  return Account.create({
+    userId,
+    companyId,
+    code,
+    name: config.name,
+    type: config.type,
+    openingBalance: 0,
+  });
+}
+
+async function syncInvoiceJournalEntry(userId, companyId, invoice) {
+  if (!invoice) {
+    return;
+  }
+
+  await JournalEntry.deleteMany({
+    userId,
+    companyId,
+    sourceType: "invoice",
+    sourceId: invoice._id.toString(),
+  });
+
+  if (invoice.status !== "Sent" && invoice.status !== "Paid") {
+    return;
+  }
+
+  const [accountsReceivable, serviceRevenue] = await Promise.all([
+    ensureCompanyAccount(userId, companyId, {
+      code: "1100",
+      name: "Accounts Receivable",
+      type: "Asset",
+    }),
+    ensureCompanyAccount(userId, companyId, {
+      code: "4000",
+      name: "Service Revenue",
+      type: "Revenue",
+    }),
+  ]);
+
+  await JournalEntry.create({
+    userId,
+    companyId,
+    date: invoice.invoiceDate,
+    description: `Invoice ${invoice.invoiceNumber} - ${invoice.clientName}`,
+    sourceType: "invoice",
+    sourceId: invoice._id.toString(),
+    lines: [
+      {
+        accountId: accountsReceivable._id,
+        debit: Number(invoice.totalAmount) || 0,
+        credit: 0,
+      },
+      {
+        accountId: serviceRevenue._id,
+        debit: 0,
+        credit: Number(invoice.totalAmount) || 0,
+      },
+    ],
+  });
 }
 
 function sanitizeRequestBody(req, res, next) {

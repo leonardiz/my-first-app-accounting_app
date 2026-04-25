@@ -129,6 +129,10 @@
             <span class="nav-icon">J</span>
             <span class="nav-label">Journal Entries</span>
           </button>
+          <button class="nav-item" type="button" data-view-target="invoices">
+            <span class="nav-icon">INV</span>
+            <span class="nav-label">Invoices</span>
+          </button>
           <button class="nav-item" type="button" data-view-target="ledger">
             <span class="nav-icon">L</span>
             <span class="nav-label">General Ledger</span>
@@ -210,6 +214,14 @@
               <div class="stat-card dashboard-card">
                 <span class="stat-label">Accounts Payable</span>
                 <strong class="stat-value" id="dashboard-accounts-payable">$0.00</strong>
+              </div>
+              <div class="stat-card dashboard-card">
+                <span class="stat-label">Outstanding Invoices</span>
+                <strong class="stat-value" id="dashboard-outstanding-invoices">$0.00</strong>
+              </div>
+              <div class="stat-card dashboard-card dashboard-card-negative">
+                <span class="stat-label">Overdue Invoices</span>
+                <strong class="stat-value" id="dashboard-overdue-invoices">0</strong>
               </div>
             </section>
 
@@ -508,6 +520,132 @@
               <p>Create a balanced entry with at least one debit and one credit line.</p>
             </div>
           </section>
+        </section>
+
+        <section class="view-panel" data-view="invoices">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Invoices</p>
+              <h2>Invoice Management</h2>
+              <p class="hero-copy">
+                Create client invoices, track collection status, and keep receivables tied to your books.
+              </p>
+            </div>
+          </header>
+
+          <div class="content-grid invoices-grid">
+            <section class="panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Create Invoice</h3>
+                  <p>Draft, send, and manage invoice lifecycle from one workspace.</p>
+                </div>
+              </div>
+
+              <form class="company-setup-form" id="invoice-form">
+                <div class="form-grid">
+                  <label>
+                    <span>Invoice Number</span>
+                    <input id="invoice-number" type="text" readonly />
+                  </label>
+
+                  <label>
+                    <span>Status</span>
+                    <select id="invoice-status" class="app-select">
+                      <option value="Draft">Draft</option>
+                      <option value="Sent">Sent</option>
+                      <option value="Paid">Paid</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Client Name</span>
+                    <input id="invoice-client-name" type="text" placeholder="Blue Peak Advisory" />
+                  </label>
+
+                  <label>
+                    <span>Client Email</span>
+                    <input id="invoice-client-email" type="email" placeholder="billing@client.com" />
+                  </label>
+
+                  <label>
+                    <span>Invoice Date</span>
+                    <input id="invoice-date" type="date" />
+                  </label>
+
+                  <label>
+                    <span>Due Date</span>
+                    <input id="invoice-due-date" type="date" />
+                  </label>
+
+                  <div class="full-span invoice-lines-panel">
+                    <div class="line-items-header">
+                      <div>
+                        <h3>Line Items</h3>
+                        <p>Add one or more invoice lines.</p>
+                      </div>
+                      <button class="ghost-button" id="add-invoice-line-button" type="button">Add Line</button>
+                    </div>
+
+                    <div class="invoice-line-items" id="invoice-line-items"></div>
+                  </div>
+
+                  <label>
+                    <span>Subtotal</span>
+                    <input id="invoice-subtotal" type="text" readonly />
+                  </label>
+
+                  <label>
+                    <span>Tax Percentage</span>
+                    <input id="invoice-tax-percentage" type="number" min="0" step="0.01" value="0" />
+                  </label>
+
+                  <label>
+                    <span>Total Amount</span>
+                    <input id="invoice-total-amount" type="text" readonly />
+                  </label>
+                </div>
+
+                <p class="form-error hidden" id="invoice-form-error"></p>
+
+                <div class="dialog-actions">
+                  <button class="secondary-button" id="invoice-reset-button" type="button">Reset</button>
+                  <button class="primary-button" id="invoice-save-button" type="submit">Save Invoice</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Invoice List</h3>
+                  <p>Track all invoices for the active company.</p>
+                </div>
+              </div>
+
+              <div class="table-wrapper" id="invoice-table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Client</th>
+                      <th>Status</th>
+                      <th>Invoice Date</th>
+                      <th>Due Date</th>
+                      <th class="numeric">Total</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="invoice-table-body"></tbody>
+                </table>
+              </div>
+
+              <div class="empty-state hidden" id="invoice-empty-state">
+                <h3>No invoices yet</h3>
+                <p>Create your first invoice to start tracking receivables.</p>
+              </div>
+            </section>
+          </div>
         </section>
 
         <section class="view-panel" data-view="ledger">
