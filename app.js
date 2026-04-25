@@ -1405,6 +1405,48 @@ async function syncCompanySetupFields(companySource = state.companySetup) {
   }
 }
 
+function clearCompanySetupFormFields() {
+  if (!elements.companySetupForm) {
+    return;
+  }
+
+  if (elements.companyName) {
+    elements.companyName.value = "";
+  }
+  if (elements.companyIndustry) {
+    elements.companyIndustry.value = "";
+  }
+  if (elements.companyBusinessType) {
+    elements.companyBusinessType.value = "";
+  }
+  if (elements.companyAddress) {
+    elements.companyAddress.value = "";
+  }
+  if (elements.companyPhone) {
+    elements.companyPhone.value = "";
+  }
+  if (elements.companyEmail) {
+    elements.companyEmail.value = "";
+  }
+  if (elements.currencySelect) {
+    elements.currencySelect.value = "";
+  }
+  if (elements.companyCountry) {
+    elements.companyCountry.value = "";
+  }
+  if (elements.companyState) {
+    elements.companyState.value = "";
+  }
+  if (elements.companyCity) {
+    elements.companyCity.value = "";
+  }
+  if (elements.financialYearStart) {
+    elements.financialYearStart.value = "";
+  }
+
+  handleCurrencySelectionInput();
+}
+
 async function handleCompanySetupSubmit(event) {
   event.preventDefault();
   const companyNameInput = document.getElementById("company-name");
@@ -1455,6 +1497,7 @@ async function handleCompanySetupSubmit(event) {
     syncAssistantOnboardingMessage();
     render();
     showToast("Company setup saved successfully");
+    clearCompanySetupFormFields();
   } catch (error) {
     showToast(`Unable to save company setup. ${error.message}`, "error");
   }

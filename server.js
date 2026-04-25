@@ -228,23 +228,44 @@ app.put("/api/company", async (req, res) => {
 });
 
 app.post("/api/companies", async (req, res) => {
+  let payload = {};
+  let step = "validating request";
   try {
-    const payload = normalizeCompanyPayload(req.body || {});
-    const company = await Company.create({
+    payload = normalizeCompanyPayload(req.body || {});
+    step = "creating company document";
+    const company = new Company({
       userId: req.user._id,
       ...payload,
     });
+    await company.save();
 
-    await User.updateOne({ _id: req.user._id }, { $set: { activeCompanyId: company._id } });
-    req.user.activeCompanyId = company._id;
+    step = "linking company to authenticated user";
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: { activeCompanyId: company._id } },
+      { new: true },
+    );
+    if (!updatedUser) {
+      throw new Error("Authenticated user was not found while assigning the active company.");
+    }
+    req.user = updatedUser;
 
+    step = "loading updated company list";
     const companies = await Company.find({ userId: req.user._id }).sort({ createdAt: 1, name: 1 }).lean();
+
+    step = "sending company creation response";
     return res.status(201).json({
       activeCompanyId: company._id.toString(),
       company: serializeCompany(company),
       companies: companies.map(serializeCompany),
     });
   } catch (error) {
+    logCompanyCreationError(error, {
+      step,
+      userId: req.user?._id,
+      payload,
+      bodyKeys: Object.keys(req.body || {}),
+    });
     return sendServerError(res, error, "Failed to create company.");
   }
 });
@@ -803,6 +824,31 @@ function createHttpError(status, message) {
   const error = new Error(message);
   error.status = status;
   return error;
+}
+
+function logCompanyCreationError(error, context = {}) {
+  const details = {
+    step: context.step || "unknown",
+    userId: context.userId ? String(context.userId) : "",
+    bodyKeys: Array.isArray(context.bodyKeys) ? context.bodyKeys : [],
+    payload: context.payload || {},
+    errorName: error?.name || "",
+    errorMessage: error instanceof Error ? error.message : String(error),
+    errorCode: typeof error?.code === "undefined" ? "" : error.code,
+    status: typeof error?.status === "undefined" ? "" : error.status,
+    stack: error?.stack || "",
+    validationErrors:
+      error?.errors && typeof error.errors === "object"
+        ? Object.fromEntries(
+            Object.entries(error.errors).map(([fieldName, fieldError]) => [
+              fieldName,
+              fieldError?.message || String(fieldError),
+            ]),
+          )
+        : {},
+  };
+
+  console.error("Company creation failed.", details);
 }
 
 function sendServerError(res, error, message) {
