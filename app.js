@@ -185,6 +185,7 @@ const state = {
   accounts: [],
   journalEntries: [],
   companySetup: getDefaultCompanySetup(),
+  companySetupMode: "edit",
   editingAccountId: null,
   editingJournalId: null,
   editingJournalDescriptionId: null,
@@ -463,6 +464,7 @@ async function bootApplication() {
       state.companies = [];
       state.activeCompanyId = "";
       state.companySetup = getDefaultCompanySetup();
+      state.companySetupMode = "edit";
       state.accounts = syncOpeningBalanceEquityAccount([]);
       state.journalEntries = syncSystemJournalEntry([]);
       state.assistantMessages = [];
@@ -491,6 +493,7 @@ async function bootApplication() {
     state.companies = [];
     state.activeCompanyId = "";
     state.companySetup = getDefaultCompanySetup();
+    state.companySetupMode = "edit";
     state.accounts = syncOpeningBalanceEquityAccount([]);
     state.journalEntries = syncSystemJournalEntry([]);
     state.setupBannerDismissed = false;
@@ -510,6 +513,7 @@ async function initializeState() {
       : [];
     state.activeCompanyId = bootstrap.activeCompanyId || "";
     state.companySetup = normalizeCompanySetup(bootstrap.company);
+    state.companySetupMode = "edit";
     state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(bootstrap.accounts) ? bootstrap.accounts : []);
     state.journalEntries = syncSystemJournalEntry(
       Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
@@ -560,6 +564,7 @@ async function refreshWorkspaceData() {
     state.companies = Array.isArray(payload.companies) ? payload.companies.map(normalizeCompanyRecord) : [];
     state.activeCompanyId = payload.activeCompanyId || "";
     state.companySetup = normalizeCompanySetup(payload.company);
+    state.companySetupMode = "edit";
     state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(payload.accounts) ? payload.accounts : []);
     state.journalEntries = syncSystemJournalEntry(
       Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
@@ -589,6 +594,7 @@ async function switchActiveCompany(companyId) {
     render();
     const response = await apiFetch(`/api/companies/${companyId}/select`, { method: "POST" });
     state.activeCompanyId = response.activeCompanyId || companyId;
+    state.companySetupMode = "edit";
     state.companySwitcherOpen = false;
     await refreshWorkspaceData();
     setActiveView("dashboard");
@@ -601,29 +607,16 @@ async function switchActiveCompany(companyId) {
 }
 
 async function createAndSwitchCompany() {
-  try {
-    const response = await apiFetch("/api/companies", {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    state.companies = Array.isArray(response.companies)
-      ? response.companies.map(normalizeCompanyRecord)
-      : state.companies;
-    state.activeCompanyId = response.activeCompanyId || response.company?.id || "";
-    state.companySetup = normalizeCompanySetup(response.company);
-    state.accounts = syncOpeningBalanceEquityAccount([]);
-    state.journalEntries = syncSystemJournalEntry([]);
-    state.assistantMessages = [];
-    state.setupBannerDismissed = false;
-    state.onboardingStepIndex = 0;
-    state.companySwitcherOpen = false;
-    updateCurrencyFormatter();
-    await syncCompanySetupFields(response.company);
-    setActiveView("company-setup");
-    showToast("New company created. Complete the setup to begin.");
-  } catch (error) {
-    showToast(`Unable to create a new company. ${error.message}`, "error");
-  }
+  state.companySetupMode = "create";
+  state.companySetup = getDefaultCompanySetup();
+  state.setupBannerDismissed = false;
+  state.onboardingStepIndex = 0;
+  state.companySwitcherOpen = false;
+  updateCurrencyFormatter();
+  await syncCompanySetupFields(state.companySetup);
+  render();
+  setActiveView("company-setup");
+  showToast("Enter the new company details, then save to create it.");
 }
 
 function handleCompanySwitcherAction(event) {
@@ -1447,8 +1440,7 @@ function clearCompanySetupFormFields() {
   handleCurrencySelectionInput();
 }
 
-async function handleCompanySetupSubmit(event) {
-  event.preventDefault();
+function readCompanySetupPayloadFromForm() {
   const companyNameInput = document.getElementById("company-name");
   const industryInput = document.getElementById("company-industry");
   const businessTypeInput = document.getElementById("company-business-type");
@@ -1461,30 +1453,40 @@ async function handleCompanySetupSubmit(event) {
   const cityInput = document.getElementById("company-city");
   const financialYearStartInput = document.getElementById("financial-year-start");
   const selectedCurrency = resolveCurrencySelection(currencyInput?.value || "");
+
+  return {
+    companyNameInput,
+    selectedCurrency,
+    payload: {
+      ...state.companySetup,
+      companyName: companyNameInput?.value.trim() || "",
+      industry: industryInput?.value.trim() || "",
+      businessType: businessTypeInput?.value.trim() || "",
+      address: addressInput?.value.trim() || "",
+      phone: phoneInput?.value.trim() || "",
+      email: emailInput?.value.trim() || "",
+      currency: selectedCurrency?.code || "",
+      country: countryInput?.value.trim() || "",
+      stateProvince: stateInput?.value.trim() || "",
+      city: cityInput?.value.trim() || "",
+      financialYearStart: financialYearStartInput?.value || "",
+    },
+  };
+}
+
+async function handleCompanySetupSubmit(event) {
+  event.preventDefault();
+  const { selectedCurrency, payload } = readCompanySetupPayloadFromForm();
+  const isCreatingCompany = state.companySetupMode === "create";
   if (!selectedCurrency) {
     showToast("Select a valid currency from the global currency list.", "error");
     elements.currencySelect.focus();
     return;
   }
 
-  const payload = {
-    ...state.companySetup,
-    companyName: companyNameInput?.value.trim() || "",
-    industry: industryInput?.value.trim() || "",
-    businessType: businessTypeInput?.value.trim() || "",
-    address: addressInput?.value.trim() || "",
-    phone: phoneInput?.value.trim() || "",
-    email: emailInput?.value.trim() || "",
-    currency: selectedCurrency.code,
-    country: countryInput?.value.trim() || "",
-    stateProvince: stateInput?.value.trim() || "",
-    city: cityInput?.value.trim() || "",
-    financialYearStart: financialYearStartInput?.value || "",
-  };
-
   try {
-    const response = await apiFetch("/api/company", {
-      method: "PUT",
+    const response = await apiFetch(isCreatingCompany ? "/api/companies" : "/api/company", {
+      method: isCreatingCompany ? "POST" : "PUT",
       body: JSON.stringify(payload),
     });
     state.activeCompanyId = response.activeCompanyId || state.activeCompanyId;
@@ -1492,6 +1494,11 @@ async function handleCompanySetupSubmit(event) {
       ? response.companies.map(normalizeCompanyRecord)
       : state.companies;
     state.companySetup = normalizeCompanySetup(response.company || response);
+    state.companySetupMode = isCreatingCompany ? "create" : "edit";
+    if (isCreatingCompany) {
+      state.accounts = syncOpeningBalanceEquityAccount([]);
+      state.journalEntries = syncSystemJournalEntry([]);
+    }
     updateCurrencyFormatter();
     await syncCompanySetupFields(response.company || response);
     syncAssistantOnboardingMessage();
@@ -1504,6 +1511,15 @@ async function handleCompanySetupSubmit(event) {
 }
 
 async function resetCompanySetup() {
+  if (state.companySetupMode === "create") {
+    state.companySetup = getDefaultCompanySetup();
+    state.onboardingStepIndex = 0;
+    await syncCompanySetupFields(state.companySetup);
+    render();
+    showToast("Company setup form cleared");
+    return;
+  }
+
   state.companySetup = getDefaultCompanySetup();
   state.onboardingStepIndex = 0;
   try {
@@ -1516,6 +1532,7 @@ async function resetCompanySetup() {
       ? response.companies.map(normalizeCompanyRecord)
       : state.companies;
     state.companySetup = normalizeCompanySetup(response.company || response);
+    state.companySetupMode = "edit";
     updateCurrencyFormatter();
     await syncCompanySetupFields(response.company || response);
     render();

@@ -487,6 +487,7 @@ async function start() {
   }
 
   await mongoose.connect(mongoUri);
+  await mongoose.connection.collection("companies").dropIndex("userId_1").catch(() => {});
   app.listen(port, () => {
     console.log(`LedgrAI running at http://localhost:${port}`);
   });
