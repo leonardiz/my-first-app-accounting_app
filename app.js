@@ -2532,6 +2532,8 @@ function exportSectionToPdf(reportKey) {
     cursorY = 118;
   };
 
+  drawPageChrome(1);
+
   report.tables.forEach((table) => {
     ensureSectionSpace(50);
     doc.setFont("helvetica", "bold");
@@ -2542,7 +2544,7 @@ function exportSectionToPdf(reportKey) {
     doc.autoTable({
       startY: cursorY + 10,
       head: [table.columns],
-      body: table.rows.length ? table.rows : [new Array(table.columns.length).fill("No data available.")],
+      body: table.rows.length ? table.rows : [buildPdfEmptyRow(table.columns.length)],
       foot: table.footer ? [table.footer] : undefined,
       margin: { top: 84, right: marginX, bottom: 38, left: marginX },
       styles: {
@@ -2567,9 +2569,8 @@ function exportSectionToPdf(reportKey) {
         fillColor: [248, 250, 252],
       },
       columnStyles: table.columnStyles || {},
-      didDrawPage: () => {
-        drawPageChrome(doc.internal.getCurrentPageInfo().pageNumber);
-      },
+      pageBreak: "auto",
+      rowPageBreak: "auto",
     });
 
     cursorY = doc.lastAutoTable.finalY + 18;
@@ -2800,6 +2801,20 @@ function buildNumericColumnStyles(columnIndexes) {
   }, {});
 }
 
+function buildPdfEmptyRow(columnCount) {
+  return [
+    {
+      content: "No transactions recorded for this period.",
+      colSpan: Math.max(1, Number(columnCount) || 1),
+      styles: {
+        halign: "center",
+        textColor: [100, 116, 139],
+        fontStyle: "italic",
+      },
+    },
+  ];
+}
+
 function buildPdfAmountTable(title, rows, totalLabel, totalAmount) {
   return {
     title,
@@ -2835,7 +2850,7 @@ function buildPdfBalanceSheetSectionTable(title, sectionKey, rows) {
     rows: expanded
       ? sectionRows.length
         ? sectionRows.map((row) => [row.account?.name || "Untitled", formatPdfCurrency(row.amount || 0)])
-        : [["No accounts", "-"]]
+        : []
       : [["Section subtotal only is visible on screen.", formatPdfCurrency(subtotal)]],
     footer: [`${title} Total`, formatPdfCurrency(subtotal)],
     columnStyles: buildNumericColumnStyles([1]),
