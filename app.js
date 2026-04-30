@@ -178,6 +178,18 @@ let currencyFormatter = new Intl.NumberFormat("en-US", {
   currency: "NGN",
 });
 
+const reportDateRangePresetLabels = {
+  "this-month": "This Month",
+  "last-month": "Last Month",
+  "this-quarter": "This Quarter",
+  "last-quarter": "Last Quarter",
+  "this-year": "This Year",
+  "all-time": "All Time",
+  custom: "Custom Range",
+};
+
+let pendingConfirmationResolver = null;
+
 const state = {
   currentUser: null,
   companies: [],
@@ -200,6 +212,7 @@ const state = {
   authView: "login",
   setupBannerDismissed: false,
   onboardingStepIndex: 0,
+  reportDateRange: getDefaultReportDateRange(),
   locationOptions: {
     countries: [],
     statesByCountry: new Map(),
@@ -249,6 +262,7 @@ const elements = {
   navItems: [...document.querySelectorAll("[data-view-target]")],
   viewPanels: [...document.querySelectorAll("[data-view]")],
   setupBanners: [...document.querySelectorAll("[data-setup-banner]")],
+  reportFilterPanels: [...document.querySelectorAll("[data-report-filter]")],
   dashboardCashBalance: document.querySelector("#dashboard-cash-balance"),
   dashboardNetIncome: document.querySelector("#dashboard-net-income"),
   dashboardTotalExpenses: document.querySelector("#dashboard-total-expenses"),
@@ -398,6 +412,13 @@ const elements = {
   invoiceTableWrapper: document.querySelector("#invoice-table-wrapper"),
   invoiceTableBody: document.querySelector("#invoice-table-body"),
   invoiceEmptyState: document.querySelector("#invoice-empty-state"),
+  confirmationDialog: document.querySelector("#confirmation-dialog"),
+  confirmationDialogEyebrow: document.querySelector("#confirmation-dialog-eyebrow"),
+  confirmationDialogTitle: document.querySelector("#confirmation-dialog-title"),
+  confirmationDialogMessage: document.querySelector("#confirmation-dialog-message"),
+  confirmationCancelButton: document.querySelector("#confirmation-cancel-button"),
+  confirmationConfirmButton: document.querySelector("#confirmation-confirm-button"),
+  closeConfirmationDialogButton: document.querySelector("#close-confirmation-dialog-button"),
 };
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
@@ -462,6 +483,10 @@ elements.invoiceLineItems.addEventListener("click", handleInvoiceLineItemClick);
 elements.invoiceStatus.addEventListener("change", renderInvoiceNumberPreview);
 elements.invoiceTaxPercentage.addEventListener("input", renderInvoiceTotals);
 elements.invoiceTableBody.addEventListener("click", handleInvoiceTableAction);
+elements.reportFilterPanels.forEach((panel) => {
+  panel.addEventListener("click", handleReportFilterAction);
+  panel.addEventListener("change", handleReportFilterAction);
+});
 elements.navItems.forEach((item) =>
   item.addEventListener("click", () => setActiveView(item.dataset.viewTarget)),
 );
@@ -470,6 +495,10 @@ elements.balanceSheetLiabilitiesList.addEventListener("click", handleBalanceShee
 elements.balanceSheetEquityList.addEventListener("click", handleBalanceSheetToggle);
 elements.assistantForm.addEventListener("submit", handleAssistantSubmit);
 elements.assistantClearButton.addEventListener("click", clearAssistantChat);
+elements.closeConfirmationDialogButton.addEventListener("click", cancelConfirmationDialog);
+elements.confirmationDialog.addEventListener("cancel", handleConfirmationDialogCancel);
+elements.confirmationDialog.addEventListener("close", handleConfirmationDialogClose);
+elements.confirmationDialog.addEventListener("click", handleConfirmationDialogBackdropClick);
 window.addEventListener("resize", handleWindowResize);
 document.addEventListener("click", handleDocumentClick);
 
@@ -484,6 +513,285 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 const workspaceStatusKeys = ["dashboard", "company", "accounts", "journal", "ledger"];
+
+function getDefaultReportDateRange() {
+  return getReportDateRangeFromPreset("this-month");
+}
+
+function getReportDateRangeFromPreset(presetKey, referenceDate = new Date()) {
+  const presets = buildReportDateRangePresets(referenceDate);
+  const normalizedPresetKey = Object.prototype.hasOwnProperty.call(presets, presetKey)
+    ? presetKey
+    : "this-month";
+  const preset = presets[normalizedPresetKey];
+
+  return {
+    preset: normalizedPresetKey,
+    startDate: preset.startDate,
+    endDate: preset.endDate,
+  };
+}
+
+function buildReportDateRangePresets(referenceDate = new Date()) {
+  const today = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate(),
+  );
+  const currentQuarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
+
+  return {
+    "this-month": {
+      startDate: formatDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
+      endDate: formatDateInputValue(today),
+    },
+    "last-month": {
+      startDate: formatDateInputValue(new Date(today.getFullYear(), today.getMonth() - 1, 1)),
+      endDate: formatDateInputValue(new Date(today.getFullYear(), today.getMonth(), 0)),
+    },
+    "this-quarter": {
+      startDate: formatDateInputValue(new Date(today.getFullYear(), currentQuarterStartMonth, 1)),
+      endDate: formatDateInputValue(today),
+    },
+    "last-quarter": {
+      startDate: formatDateInputValue(new Date(today.getFullYear(), currentQuarterStartMonth - 3, 1)),
+      endDate: formatDateInputValue(new Date(today.getFullYear(), currentQuarterStartMonth, 0)),
+    },
+    "this-year": {
+      startDate: formatDateInputValue(new Date(today.getFullYear(), 0, 1)),
+      endDate: formatDateInputValue(today),
+    },
+    "all-time": {
+      startDate: "",
+      endDate: "",
+    },
+  };
+}
+
+function formatDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeReportDateRange(range = state.reportDateRange) {
+  let startDate = String(range?.startDate || "").trim();
+  let endDate = String(range?.endDate || "").trim();
+
+  if (startDate && endDate && startDate > endDate) {
+    [startDate, endDate] = [endDate, startDate];
+  }
+
+  return {
+    preset: detectReportDateRangePreset(startDate, endDate),
+    startDate,
+    endDate,
+  };
+}
+
+function detectReportDateRangePreset(startDate, endDate) {
+  if (!startDate && !endDate) {
+    return "all-time";
+  }
+
+  const presets = buildReportDateRangePresets();
+  const matchedPresetKey = Object.entries(presets).find(([, preset]) => {
+    return preset.startDate === startDate && preset.endDate === endDate;
+  })?.[0];
+
+  return matchedPresetKey || "custom";
+}
+
+function getReportDateRangeDescriptor() {
+  const range = normalizeReportDateRange();
+  const presetLabel = reportDateRangePresetLabels[range.preset] || reportDateRangePresetLabels.custom;
+
+  if (!range.startDate && !range.endDate) {
+    return {
+      ...range,
+      presetLabel,
+      label: presetLabel,
+      summary: "Showing all available transactions",
+      filenameDate: getTodayDate(),
+    };
+  }
+
+  let boundaryLabel = "";
+  if (range.startDate && range.endDate) {
+    boundaryLabel = `${formatDate(range.startDate)} to ${formatDate(range.endDate)}`;
+  } else if (range.startDate) {
+    boundaryLabel = `From ${formatDate(range.startDate)}`;
+  } else {
+    boundaryLabel = `Up to ${formatDate(range.endDate)}`;
+  }
+
+  return {
+    ...range,
+    presetLabel,
+    label: range.preset === "custom" ? boundaryLabel : `${presetLabel}: ${boundaryLabel}`,
+    summary: `Showing ${boundaryLabel}`,
+    filenameDate: range.endDate || range.startDate || getTodayDate(),
+  };
+}
+
+function renderReportFilters() {
+  const descriptor = getReportDateRangeDescriptor();
+  const range = normalizeReportDateRange();
+  state.reportDateRange = range;
+
+  elements.reportFilterPanels.forEach((panel) => {
+    const startInput = panel.querySelector("[data-report-filter-start]");
+    const endInput = panel.querySelector("[data-report-filter-end]");
+    const summary = panel.querySelector("[data-report-filter-summary]");
+
+    if (startInput instanceof HTMLInputElement) {
+      startInput.value = range.startDate;
+    }
+
+    if (endInput instanceof HTMLInputElement) {
+      endInput.value = range.endDate;
+    }
+
+    if (summary) {
+      summary.textContent = descriptor.summary;
+    }
+
+    panel.querySelectorAll("[data-report-filter-preset]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.reportFilterPreset === range.preset);
+    });
+  });
+}
+
+function handleReportFilterAction(event) {
+  const presetButton =
+    event.type === "click" && event.target instanceof Element
+      ? event.target.closest("[data-report-filter-preset]")
+      : null;
+  if (presetButton instanceof HTMLButtonElement) {
+    state.reportDateRange = getReportDateRangeFromPreset(presetButton.dataset.reportFilterPreset || "");
+    render();
+    return;
+  }
+
+  const input =
+    event.type === "change" && event.target instanceof HTMLInputElement
+      ? event.target
+      : null;
+  if (!input || !input.matches("[data-report-filter-start], [data-report-filter-end]")) {
+    return;
+  }
+
+  const panel = input.closest("[data-report-filter]");
+  const startInput = panel?.querySelector("[data-report-filter-start]");
+  const endInput = panel?.querySelector("[data-report-filter-end]");
+  let startDate = startInput instanceof HTMLInputElement ? startInput.value : "";
+  let endDate = endInput instanceof HTMLInputElement ? endInput.value : "";
+
+  if (startDate && endDate && startDate > endDate) {
+    if (input.matches("[data-report-filter-start]")) {
+      endDate = startDate;
+    } else {
+      startDate = endDate;
+    }
+  }
+
+  state.reportDateRange = normalizeReportDateRange({
+    startDate,
+    endDate,
+  });
+  render();
+}
+
+function isDateWithinReportRange(dateValue) {
+  const { startDate, endDate } = normalizeReportDateRange();
+  const date = String(dateValue || "").trim();
+
+  if (!date) {
+    return false;
+  }
+
+  if (startDate && date < startDate) {
+    return false;
+  }
+
+  if (endDate && date > endDate) {
+    return false;
+  }
+
+  return true;
+}
+
+function getReportJournalEntries({ includeSystemGenerated = true } = {}) {
+  return state.journalEntries.filter((entry) => {
+    if (!includeSystemGenerated && entry.systemGenerated) {
+      return false;
+    }
+
+    return isDateWithinReportRange(entry.date);
+  });
+}
+
+function confirmDestructiveAction({
+  eyebrow = "Please Confirm",
+  title = "Confirm Action",
+  message = "",
+  confirmLabel = "Confirm Delete",
+} = {}) {
+  if (
+    !(elements.confirmationDialog instanceof HTMLDialogElement) ||
+    typeof elements.confirmationDialog.showModal !== "function"
+  ) {
+    return Promise.resolve(window.confirm(message || title));
+  }
+
+  if (elements.confirmationDialog.open) {
+    resolvePendingConfirmation(false);
+    elements.confirmationDialog.close("cancel");
+  }
+
+  elements.confirmationDialogEyebrow.textContent = eyebrow;
+  elements.confirmationDialogTitle.textContent = title;
+  elements.confirmationDialogMessage.textContent = message;
+  elements.confirmationConfirmButton.textContent = confirmLabel;
+  elements.confirmationDialog.showModal();
+  window.setTimeout(() => {
+    elements.confirmationCancelButton.focus();
+  }, 0);
+
+  return new Promise((resolve) => {
+    pendingConfirmationResolver = resolve;
+  });
+}
+
+function resolvePendingConfirmation(confirmed) {
+  const resolver = pendingConfirmationResolver;
+  pendingConfirmationResolver = null;
+  if (typeof resolver === "function") {
+    resolver(confirmed);
+  }
+}
+
+function cancelConfirmationDialog() {
+  if (elements.confirmationDialog?.open) {
+    elements.confirmationDialog.close("cancel");
+  }
+}
+
+function handleConfirmationDialogCancel(event) {
+  event.preventDefault();
+  cancelConfirmationDialog();
+}
+
+function handleConfirmationDialogClose() {
+  resolvePendingConfirmation(elements.confirmationDialog.returnValue === "confirm");
+}
+
+function handleConfirmationDialogBackdropClick(event) {
+  if (event.target === elements.confirmationDialog) {
+    cancelConfirmationDialog();
+  }
+}
 
 async function bootApplication() {
   try {
@@ -501,6 +809,7 @@ async function bootApplication() {
       state.assistantMessages = [];
       state.setupBannerDismissed = false;
       state.companySwitcherOpen = false;
+      state.reportDateRange = getDefaultReportDateRange();
       render();
       return;
     }
@@ -555,6 +864,7 @@ async function initializeState() {
     state.editingInvoiceId = null;
     state.assistantMessages = [];
     state.currentView = "dashboard";
+    state.reportDateRange = getDefaultReportDateRange();
     state.mobileSidebarOpen = false;
     state.sidebarCollapsed = false;
     state.setupBannerDismissed = false;
@@ -1038,6 +1348,7 @@ async function handleLogout() {
   state.companySetup = getDefaultCompanySetup();
   state.assistantMessages = [];
   state.authView = "login";
+  state.reportDateRange = getDefaultReportDateRange();
   state.setupBannerDismissed = false;
   state.companySwitcherOpen = false;
   render();
@@ -1053,6 +1364,7 @@ function render() {
   renderBranding();
   renderCompanySwitcher();
   renderSetupBanners();
+  renderReportFilters();
   renderDashboard();
   renderCompanySetup();
   renderInvoices();
@@ -1359,7 +1671,9 @@ function renderCompanySetup() {
   const companyStatus = state.requestStatus.company;
   const onboardingSteps = getOnboardingSteps();
   const currentStep = onboardingSteps[state.onboardingStepIndex] || onboardingSteps[0];
-  const selectedCurrency = getCurrencyMeta(state.companySetup.currency);
+  const selectedCurrency = resolveCurrencySelection(
+    elements.currencySelect?.value || state.companySetup.currency,
+  );
 
   elements.currencySelectionHint.textContent = selectedCurrency
     ? `Selected currency: ${selectedCurrency.code} ${selectedCurrency.symbol} · ${selectedCurrency.name}`
@@ -1585,42 +1899,26 @@ async function handleCompanySetupSubmit(event) {
     syncAssistantOnboardingMessage();
     render();
     showToast("Company setup saved successfully");
-    clearCompanySetupFormFields();
   } catch (error) {
     showToast(`Unable to save company setup. ${error.message}`, "error");
   }
 }
 
 async function resetCompanySetup() {
-  if (state.companySetupMode === "create") {
-    state.companySetup = getDefaultCompanySetup();
-    state.onboardingStepIndex = 0;
-    await syncCompanySetupFields(state.companySetup);
-    render();
-    showToast("Company setup form cleared");
+  const confirmed = await confirmDestructiveAction({
+    eyebrow: "Reset Company Setup",
+    title: "Reset Company Setup?",
+    message:
+      "Are you sure you want to reset? This will clear all unsaved changes to your company setup. Your previously saved company data will not be affected.",
+    confirmLabel: "Confirm Reset",
+  });
+
+  if (!confirmed) {
     return;
   }
 
-  state.companySetup = getDefaultCompanySetup();
-  state.onboardingStepIndex = 0;
-  try {
-    const response = await apiFetch("/api/company", {
-      method: "PUT",
-      body: JSON.stringify(state.companySetup),
-    });
-    state.activeCompanyId = response.activeCompanyId || state.activeCompanyId;
-    state.companies = Array.isArray(response.companies)
-      ? response.companies.map(normalizeCompanyRecord)
-      : state.companies;
-    state.companySetup = normalizeCompanySetup(response.company || response);
-    state.companySetupMode = "edit";
-    updateCurrencyFormatter();
-    await syncCompanySetupFields(response.company || response);
-    render();
-    showToast("Company setup reset successfully");
-  } catch (error) {
-    showToast(`Unable to reset company setup. ${error.message}`, "error");
-  }
+  clearCompanySetupFormFields();
+  showToast("Company setup form cleared");
 }
 
 function renderInvoices() {
@@ -1933,7 +2231,13 @@ async function handleInvoiceTableAction(event) {
   }
 
   if (action === "delete-invoice") {
-    if (!window.confirm(`Delete invoice "${invoice.invoiceNumber}"?`)) {
+    const confirmed = await confirmDestructiveAction({
+      eyebrow: "Delete Invoice",
+      title: "Delete Invoice?",
+      message: "Are you sure you want to delete this invoice?",
+      confirmLabel: "Confirm Delete",
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -2303,9 +2607,10 @@ function exportSectionToPdf(reportKey) {
 
 function buildPrintableReport(reportKey) {
   const period = getPrintableReportPeriod(reportKey);
+  const filteredEntries = getReportJournalEntries();
 
   if (reportKey === "trial-balance") {
-    const report = buildTrialBalanceReport();
+    const report = buildTrialBalanceReport(filteredEntries);
     return {
       title: "Trial Balance",
       periodLabel: period.label,
@@ -2321,7 +2626,7 @@ function buildPrintableReport(reportKey) {
   }
 
   if (reportKey === "income-statement") {
-    const report = buildIncomeStatementReport();
+    const report = buildIncomeStatementReport(filteredEntries);
     return {
       title: "Income Statement",
       periodLabel: period.label,
@@ -2337,7 +2642,7 @@ function buildPrintableReport(reportKey) {
   }
 
   if (reportKey === "balance-sheet") {
-    const report = buildBalanceSheetReport();
+    const report = buildBalanceSheetReport(filteredEntries);
     return {
       title: "Balance Sheet",
       periodLabel: period.label,
@@ -2353,7 +2658,7 @@ function buildPrintableReport(reportKey) {
   }
 
   if (reportKey === "cash-flow") {
-    const report = buildCashFlowStatementReport();
+    const report = buildCashFlowStatementReport(filteredEntries);
     return {
       title: "Cash Flow Statement",
       periodLabel: period.label,
@@ -2369,17 +2674,20 @@ function buildPrintableReport(reportKey) {
   }
 
   if (reportKey === "ledger") {
-    const ledgers = buildGeneralLedger();
+    const visibleEntries = getReportJournalEntries({ includeSystemGenerated: false });
+    const ledgers = buildGeneralLedger(filteredEntries).filter(
+      (ledger) => ledger.lines.length > 1 || Math.abs(ledger.openingBalance) >= 0.005,
+    );
     return {
       title: "General Ledger",
       periodLabel: period.label,
       filenameDate: period.filenameDate,
       summaryHtml: buildPrintableSummaryGrid([
         { label: "Accounts", value: String(ledgers.length) },
-        { label: "Journal Entries", value: String(getVisibleJournalEntries().length) },
+        { label: "Journal Entries", value: String(visibleEntries.length) },
         {
           label: "Posted Lines",
-          value: String(getVisibleJournalEntries().reduce((sum, entry) => sum + entry.lineItems.length, 0)),
+          value: String(visibleEntries.reduce((sum, entry) => sum + entry.lineItems.length, 0)),
         },
       ]),
       bodyHtml: buildPrintableLedgerBody(ledgers),
@@ -2891,31 +3199,10 @@ function buildPrintableLineItemTable(title, rows, totalLabel, totalAmount) {
 }
 
 function getPrintableReportPeriod(reportKey) {
-  const dates = getVisibleJournalEntries()
-    .map((entry) => entry.date)
-    .filter(Boolean)
-    .sort();
-  const today = getTodayDate();
-  const startDate = dates[0] || state.companySetup.financialYearStart || today;
-  const endDate = dates[dates.length - 1] || today;
-
-  if (reportKey === "balance-sheet" || reportKey === "trial-balance" || reportKey === "ledger") {
-    return {
-      label: `As of ${formatDate(endDate)}`,
-      filenameDate: endDate,
-    };
-  }
-
-  if (!dates.length) {
-    return {
-      label: `As of ${formatDate(endDate)}`,
-      filenameDate: endDate,
-    };
-  }
-
+  const descriptor = getReportDateRangeDescriptor();
   return {
-    label: `${formatDate(startDate)} to ${formatDate(endDate)}`,
-    filenameDate: endDate,
+    label: `Reporting Period: ${descriptor.label}`,
+    filenameDate: descriptor.filenameDate,
   };
 }
 
@@ -3052,9 +3339,10 @@ function exportSectionToPdf(reportKey) {
 
 function buildPdfReport(reportKey) {
   const period = getPrintableReportPeriod(reportKey);
+  const filteredEntries = getReportJournalEntries();
 
   if (reportKey === "trial-balance") {
-    const report = buildTrialBalanceReport();
+    const report = buildTrialBalanceReport(filteredEntries);
     return {
       title: "Trial Balance",
       periodLabel: period.label,
@@ -3096,7 +3384,7 @@ function buildPdfReport(reportKey) {
   }
 
   if (reportKey === "income-statement") {
-    const report = buildIncomeStatementReport();
+    const report = buildIncomeStatementReport(filteredEntries);
     return {
       title: "Income Statement",
       periodLabel: period.label,
@@ -3125,7 +3413,7 @@ function buildPdfReport(reportKey) {
   }
 
   if (reportKey === "balance-sheet") {
-    const report = buildBalanceSheetReport();
+    const report = buildBalanceSheetReport(filteredEntries);
     return {
       title: "Balance Sheet",
       periodLabel: period.label,
@@ -3171,7 +3459,7 @@ function buildPdfReport(reportKey) {
   }
 
   if (reportKey === "cash-flow") {
-    const report = buildCashFlowStatementReport();
+    const report = buildCashFlowStatementReport(filteredEntries);
     return {
       title: "Cash Flow Statement",
       periodLabel: period.label,
@@ -3214,7 +3502,9 @@ function buildPdfReport(reportKey) {
   }
 
   if (reportKey === "ledger") {
-    const ledgers = buildGeneralLedger();
+    const ledgers = buildGeneralLedger(filteredEntries).filter(
+      (ledger) => ledger.lines.length > 1 || Math.abs(ledger.openingBalance) >= 0.005,
+    );
     return {
       title: "General Ledger",
       periodLabel: period.label,
@@ -3477,7 +3767,7 @@ function renderJournalTable() {
     return;
   }
 
-  const visibleEntries = getVisibleJournalEntries();
+  const visibleEntries = getReportJournalEntries({ includeSystemGenerated: false });
   elements.journalTableWrapper.classList.remove("hidden");
   renderSectionFeedback(elements.journalStatus, { visible: false });
   safeSetInnerHTML(elements.journalTableBody, "");
@@ -3486,10 +3776,15 @@ function renderJournalTable() {
     elements.journalTableWrapper.classList.add("hidden");
     safeSetInnerHTML(
       elements.journalEmptyState,
-      `
-        <h3>No journal entries yet</h3>
-        <p>No journal entries yet. Add your first journal entry to get started.</p>
-      `,
+      getVisibleJournalEntries().length
+        ? `
+            <h3>No journal entries for this period</h3>
+            <p>No journal entries fall within the selected date range.</p>
+          `
+        : `
+            <h3>No journal entries yet</h3>
+            <p>No journal entries yet. Add your first journal entry to get started.</p>
+          `,
     );
     elements.journalEmptyState.classList.remove("hidden");
     return;
@@ -3621,6 +3916,7 @@ function renderGeneralLedger() {
   }
 
   const visibleAccounts = getVisibleAccounts();
+  const filteredEntries = getReportJournalEntries();
   elements.ledgerList.classList.remove("hidden");
   renderSectionFeedback(elements.ledgerStatus, { visible: false });
   safeSetInnerHTML(elements.ledgerList, "");
@@ -3640,7 +3936,22 @@ function renderGeneralLedger() {
 
   elements.ledgerEmptyState.classList.add("hidden");
 
-  const ledgers = buildGeneralLedger();
+  const ledgers = buildGeneralLedger(filteredEntries).filter(
+    (ledger) => ledger.lines.length > 1 || Math.abs(ledger.openingBalance) >= 0.005,
+  );
+
+  if (ledgers.length === 0) {
+    elements.ledgerList.classList.add("hidden");
+    safeSetInnerHTML(
+      elements.ledgerEmptyState,
+      `
+        <h3>No ledger activity for this period</h3>
+        <p>No transactions fall within the selected date range.</p>
+      `,
+    );
+    elements.ledgerEmptyState.classList.remove("hidden");
+    return;
+  }
 
   ledgers.forEach((ledger) => {
     const card = document.createElement("article");
@@ -3710,14 +4021,29 @@ function renderTrialBalance() {
   safeSetInnerHTML(elements.trialBalanceTableBody, "");
   safeSetInnerHTML(elements.trialBalanceTableFoot, "");
 
+  const report = buildTrialBalanceReport(getReportJournalEntries());
+  const hasReportData = report.rows.some((row) => {
+    return row.totalDebits > 0 || row.totalCredits > 0 || row.closingDebit > 0 || row.closingCredit > 0;
+  });
+
   if (state.accounts.length === 0) {
     elements.trialBalanceEmptyState.classList.remove("hidden");
     return;
   }
 
-  elements.trialBalanceEmptyState.classList.add("hidden");
+  if (!hasReportData) {
+    safeSetInnerHTML(
+      elements.trialBalanceEmptyState,
+      `
+        <h3>No trial balance data for this period</h3>
+        <p>No balances fall within the selected date range.</p>
+      `,
+    );
+    elements.trialBalanceEmptyState.classList.remove("hidden");
+    return;
+  }
 
-  const report = buildTrialBalanceReport();
+  elements.trialBalanceEmptyState.classList.add("hidden");
 
   report.rows.forEach((row) => {
     const tableRow = document.createElement("tr");
@@ -3769,9 +4095,16 @@ function renderIncomeStatement() {
   safeSetInnerHTML(elements.incomeExpenseList, "");
   safeSetInnerHTML(elements.incomeSummaryBody, "");
 
-  const report = buildIncomeStatementReport();
+  const report = buildIncomeStatementReport(getReportJournalEntries());
 
   if (report.revenueAccounts.length === 0 && report.expenseAccounts.length === 0) {
+    safeSetInnerHTML(
+      elements.incomeStatementEmptyState,
+      `
+        <h3>No income statement activity for this period</h3>
+        <p>No revenue or expense transactions fall within the selected date range.</p>
+      `,
+    );
     elements.incomeStatementEmptyState.classList.remove("hidden");
   } else {
     elements.incomeStatementEmptyState.classList.add("hidden");
@@ -3817,7 +4150,7 @@ function renderBalanceSheet() {
   safeSetInnerHTML(elements.balanceSheetEquityList, "");
   safeSetInnerHTML(elements.balanceSheetSummaryBody, "");
 
-  const report = buildBalanceSheetReport();
+  const report = buildBalanceSheetReport(getReportJournalEntries());
 
   if (
     report.assetAccounts.length === 0 &&
@@ -3825,6 +4158,13 @@ function renderBalanceSheet() {
     report.equityAccounts.length === 0 &&
     Math.abs(report.retainedEarnings) < 0.005
   ) {
+    safeSetInnerHTML(
+      elements.balanceSheetEmptyState,
+      `
+        <h3>No balance sheet data for this period</h3>
+        <p>No balances fall within the selected date range.</p>
+      `,
+    );
     elements.balanceSheetEmptyState.classList.remove("hidden");
   } else {
     elements.balanceSheetEmptyState.classList.add("hidden");
@@ -3930,9 +4270,16 @@ function renderCashFlowStatement() {
   safeSetInnerHTML(elements.cashFlowFinancingList, "");
   safeSetInnerHTML(elements.cashFlowSummaryBody, "");
 
-  const report = buildCashFlowStatementReport();
+  const report = buildCashFlowStatementReport(getReportJournalEntries());
 
   if (!report.hasCashAccounts) {
+    safeSetInnerHTML(
+      elements.cashFlowEmptyState,
+      `
+        <h3>No cash flow data for this period</h3>
+        <p>Add a cash account and post transactions within the selected date range to generate this statement.</p>
+      `,
+    );
     elements.cashFlowEmptyState.classList.remove("hidden");
   } else {
     elements.cashFlowEmptyState.classList.add("hidden");
@@ -4137,7 +4484,12 @@ async function handleAccountTableAction(event) {
       return;
     }
 
-    const confirmed = window.confirm(`Delete account "${account.name}"?`);
+    const confirmed = await confirmDestructiveAction({
+      eyebrow: "Delete Account",
+      title: "Delete Account?",
+      message: "Are you sure you want to delete this account? This action cannot be undone.",
+      confirmLabel: "Confirm Delete",
+    });
     if (!confirmed) {
       return;
     }
@@ -4230,7 +4582,13 @@ async function handleJournalTableAction(event) {
       return;
     }
 
-    const confirmed = window.confirm(`Delete journal entry "${entry.description}"?`);
+    const confirmed = await confirmDestructiveAction({
+      eyebrow: "Delete Journal Entry",
+      title: "Delete Journal Entry?",
+      message:
+        "Are you sure you want to delete this journal entry? This will also remove any linked invoice journal entries.",
+      confirmLabel: "Confirm Delete",
+    });
     if (!confirmed) {
       return;
     }
@@ -4559,7 +4917,7 @@ function calculateLineTotals(lineItems) {
   };
 }
 
-function buildGeneralLedger() {
+function buildGeneralLedger(journalEntries = state.journalEntries) {
   const sortedAccounts = [...state.accounts].sort((left, right) =>
     left.code.localeCompare(right.code, undefined, { numeric: true }),
   );
@@ -4568,7 +4926,7 @@ function buildGeneralLedger() {
     const openingBalance = Number(account.openingBalance) || 0;
     let runningBalance = openingBalance;
 
-    const transactions = state.journalEntries
+    const transactions = journalEntries
       .flatMap((entry) =>
         entry.lineItems
           .filter((line) => line.accountId === account.id)
@@ -4618,11 +4976,11 @@ function buildGeneralLedger() {
   });
 }
 
-function buildTrialBalanceReport() {
+function buildTrialBalanceReport(journalEntries = state.journalEntries) {
   const rows = [...state.accounts]
     .sort((left, right) => left.code.localeCompare(right.code, undefined, { numeric: true }))
     .map((account) => {
-      const postingTotals = state.journalEntries
+      const postingTotals = journalEntries
         .flatMap((entry) => entry.lineItems)
         .filter((line) => line.accountId === account.id)
         .reduce(
@@ -4669,9 +5027,9 @@ function buildTrialBalanceReport() {
   };
 }
 
-function buildIncomeStatementReport() {
+function buildIncomeStatementReport(journalEntries = state.journalEntries) {
   const accountSummaries = state.accounts.map((account) => {
-    const postingTotals = getPostingTotalsForAccount(account.id);
+    const postingTotals = getPostingTotalsForAccount(account.id, journalEntries);
     const closingBalance = calculateClosingBalance(
       Number(account.openingBalance) || 0,
       postingTotals.debits,
@@ -4715,11 +5073,11 @@ function buildIncomeStatementReport() {
   };
 }
 
-function buildBalanceSheetReport() {
-  const incomeStatement = buildIncomeStatementReport();
+function buildBalanceSheetReport(journalEntries = state.journalEntries) {
+  const incomeStatement = buildIncomeStatementReport(journalEntries);
   const accountSummaries = state.accounts
     .map((account) => {
-      const postingTotals = getPostingTotalsForAccount(account.id);
+      const postingTotals = getPostingTotalsForAccount(account.id, journalEntries);
       const closingBalance = calculateClosingBalance(
         Number(account.openingBalance) || 0,
         postingTotals.debits,
@@ -4792,8 +5150,8 @@ function buildBalanceSheetReport() {
   };
 }
 
-function buildCashFlowStatementReport() {
-  const incomeStatement = buildIncomeStatementReport();
+function buildCashFlowStatementReport(journalEntries = state.journalEntries) {
+  const incomeStatement = buildIncomeStatementReport(journalEntries);
   const cashAccounts = state.accounts.filter((account) => isCashAccount(account));
   const hasCashAccounts = cashAccounts.length > 0;
   const openingCash = cashAccounts.reduce(
@@ -4801,12 +5159,12 @@ function buildCashFlowStatementReport() {
     0,
   );
   const cashNetChange = cashAccounts.reduce((sum, account) => {
-    const postingTotals = getPostingTotalsForAccount(account.id);
+    const postingTotals = getPostingTotalsForAccount(account.id, journalEntries);
     return sum + postingTotals.debits - postingTotals.credits;
   }, 0);
   const closingCash = openingCash + cashNetChange;
 
-  const accountMovements = buildAccountMovementMap();
+  const accountMovements = buildAccountMovementMap(journalEntries);
   const workingCapitalAdjustments = buildWorkingCapitalAdjustments(accountMovements);
   const operatingItems = [
     {
@@ -4918,8 +5276,8 @@ function syncSystemJournalEntry(entries) {
   return [...userEntries, systemEntry];
 }
 
-function getPostingTotalsForAccount(accountId) {
-  return state.journalEntries
+function getPostingTotalsForAccount(accountId, journalEntries = state.journalEntries) {
+  return journalEntries
     .flatMap((entry) => entry.lineItems)
     .filter((line) => line.accountId === accountId)
     .reduce(
@@ -4931,9 +5289,9 @@ function getPostingTotalsForAccount(accountId) {
     );
 }
 
-function buildAccountMovementMap() {
+function buildAccountMovementMap(journalEntries = state.journalEntries) {
   return state.accounts.reduce((map, account) => {
-    const postingTotals = getPostingTotalsForAccount(account.id);
+    const postingTotals = getPostingTotalsForAccount(account.id, journalEntries);
     let movement = 0;
 
     if (account.type === "Asset" || account.type === "Expense") {

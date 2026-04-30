@@ -442,6 +442,7 @@ th {
 .primary-button:hover,
 .secondary-button:hover,
 .ghost-button:hover,
+.danger-button:hover,
 .icon-button:hover,
 .line-remove-button:hover,
 .currency-option:hover,
@@ -840,6 +841,44 @@ th {
   overflow-x: auto;
 }
 
+.report-filter-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.report-filter-toolbar {
+  align-items: flex-start;
+}
+
+.report-filter-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.report-filter-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.report-filter-presets .ghost-button {
+  border: 1px solid transparent;
+}
+
+.report-filter-presets .ghost-button.is-active {
+  border-color: rgba(22, 119, 255, 0.24);
+  background: rgba(22, 119, 255, 0.18);
+  color: var(--accent-dark);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1214,6 +1253,7 @@ tbody tr:hover {
 .ghost-button,
 .secondary-button,
 .primary-button,
+.danger-button,
 .icon-button,
 .line-remove-button {
   border: 0;
@@ -1234,6 +1274,13 @@ tbody tr:hover {
   font-weight: 600;
   color: var(--text);
   background: #e8edf2;
+}
+
+.danger-button {
+  padding: 12px 18px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #dc2626, #991b1b);
 }
 
 .ghost-button {
@@ -1332,7 +1379,8 @@ tbody tr:hover {
 }
 
 .account-dialog,
-.journal-dialog {
+.journal-dialog,
+.confirmation-dialog {
   width: min(100%, 860px);
   border: 0;
   padding: 0;
@@ -1344,16 +1392,33 @@ tbody tr:hover {
   width: min(100%, 620px);
 }
 
+.confirmation-dialog {
+  width: min(100%, 560px);
+}
+
 .account-dialog::backdrop,
-.journal-dialog::backdrop {
+.journal-dialog::backdrop,
+.confirmation-dialog::backdrop {
   background: rgba(15, 23, 42, 0.4);
   backdrop-filter: blur(5px);
 }
 
 .account-form,
-.journal-form {
+.journal-form,
+.confirmation-form {
   padding: 28px;
   background: #ffffff;
+}
+
+.confirmation-message {
+  margin: 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.confirmation-actions {
+  margin-top: 24px;
 }
 
 .dialog-header {
@@ -1466,6 +1531,7 @@ textarea:focus {
 
 @media (max-width: 1180px) {
   .company-setup-grid,
+  .report-filter-grid,
   .statement-layout,
   .statement-layout-3,
   .balance-figures {
@@ -1538,7 +1604,8 @@ textarea:focus {
   .company-setup-panel,
   .onboarding-panel,
   .account-form,
-  .journal-form {
+  .journal-form,
+  .confirmation-form {
     padding: 20px;
   }
 
@@ -1559,7 +1626,8 @@ textarea:focus {
 
   .dialog-actions button,
   .primary-button,
-  .secondary-button {
+  .secondary-button,
+  .danger-button {
     width: 100%;
   }
 
@@ -1582,6 +1650,7 @@ textarea:focus {
   .dialog-actions,
   .onboarding-actions,
   .company-setup-actions,
+  .report-filter-panel,
   .icon-button,
   .line-remove-button,
   .inline-edit-button,
