@@ -64,6 +64,10 @@ const companySchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    billApprovalThreshold: {
+      type: Number,
+      default: 100000,
+    },
   },
   {
     timestamps: true,

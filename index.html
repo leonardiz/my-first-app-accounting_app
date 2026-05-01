@@ -133,6 +133,10 @@
             <span class="nav-icon">INV</span>
             <span class="nav-label">Invoices</span>
           </button>
+          <button class="nav-item" type="button" data-view-target="bills">
+            <span class="nav-icon">BIL</span>
+            <span class="nav-label">Bills</span>
+          </button>
           <button class="nav-item" type="button" data-view-target="ledger">
             <span class="nav-icon">L</span>
             <span class="nav-label">General Ledger</span>
@@ -222,6 +226,44 @@
               <div class="stat-card dashboard-card dashboard-card-negative">
                 <span class="stat-label">Overdue Invoices</span>
                 <strong class="stat-value" id="dashboard-overdue-invoices">0</strong>
+              </div>
+              <div class="stat-card dashboard-card">
+                <span class="stat-label">Outstanding Bills</span>
+                <strong class="stat-value" id="dashboard-outstanding-bills">$0.00</strong>
+              </div>
+              <div class="stat-card dashboard-card dashboard-card-negative">
+                <span class="stat-label">Overdue Bills</span>
+                <strong class="stat-value" id="dashboard-overdue-bills">0</strong>
+              </div>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Pending Approvals</h3>
+                  <p>Bills above your approval threshold wait here until approved or rejected.</p>
+                </div>
+              </div>
+
+              <div class="table-wrapper" id="dashboard-approvals-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bill</th>
+                      <th>Supplier</th>
+                      <th>Due Date</th>
+                      <th class="numeric">Amount</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-approvals-body"></tbody>
+                </table>
+              </div>
+
+              <div class="empty-state hidden" id="dashboard-approvals-empty-state">
+                <h3>No bills pending approval</h3>
+                <p>High-value supplier bills will appear here when they need approval.</p>
               </div>
             </section>
 
@@ -359,6 +401,18 @@
                   <label>
                     <span>Financial Year Start</span>
                     <input id="financial-year-start" name="financialYearStart" type="date" />
+                  </label>
+
+                  <label>
+                    <span>Bill Approval Threshold</span>
+                    <input
+                      id="bill-approval-threshold"
+                      name="billApprovalThreshold"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="100000"
+                    />
                   </label>
                 </div>
 
@@ -674,6 +728,133 @@
               <div class="empty-state hidden" id="invoice-empty-state">
                 <h3>No invoices yet</h3>
                 <p>Create your first invoice to start tracking receivables.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view-panel" data-view="bills">
+          <header class="hero panel">
+            <div>
+              <p class="eyebrow">Bills</p>
+              <h2>Accounts Payable</h2>
+              <p class="hero-copy">
+                Record supplier bills, manage approvals, and keep accounts payable tied to your books.
+              </p>
+            </div>
+          </header>
+
+          <div class="content-grid invoices-grid">
+            <section class="panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Create Bill</h3>
+                  <p>Capture supplier bills, approval status, and payable workflow from one workspace.</p>
+                </div>
+              </div>
+
+              <form class="company-setup-form" id="bill-form">
+                <div class="form-grid">
+                  <label>
+                    <span>Bill Number</span>
+                    <input id="bill-number" type="text" readonly />
+                  </label>
+
+                  <label>
+                    <span>Status</span>
+                    <select id="bill-status" class="app-select">
+                      <option value="Draft">Draft</option>
+                      <option value="Received">Received</option>
+                      <option value="Paid">Paid</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Supplier Name</span>
+                    <input id="bill-supplier-name" type="text" placeholder="Vertex Supplies Ltd" />
+                  </label>
+
+                  <label>
+                    <span>Supplier Email</span>
+                    <input id="bill-supplier-email" type="email" placeholder="ap@supplier.com" />
+                  </label>
+
+                  <label>
+                    <span>Bill Date</span>
+                    <input id="bill-date" type="date" />
+                  </label>
+
+                  <label>
+                    <span>Due Date</span>
+                    <input id="bill-due-date" type="date" />
+                  </label>
+
+                  <div class="full-span invoice-lines-panel">
+                    <div class="line-items-header">
+                      <div>
+                        <h3>Line Items</h3>
+                        <p>Add one or more bill lines.</p>
+                      </div>
+                      <button class="ghost-button" id="add-bill-line-button" type="button">Add Line</button>
+                    </div>
+
+                    <div class="invoice-line-items" id="bill-line-items"></div>
+                  </div>
+
+                  <label>
+                    <span>Subtotal</span>
+                    <input id="bill-subtotal" type="text" readonly />
+                  </label>
+
+                  <label>
+                    <span>Tax Percentage</span>
+                    <input id="bill-tax-percentage" type="number" min="0" step="0.01" value="0" />
+                  </label>
+
+                  <label>
+                    <span>Total Amount</span>
+                    <input id="bill-total-amount" type="text" readonly />
+                  </label>
+                </div>
+
+                <p class="form-error hidden" id="bill-form-error"></p>
+
+                <div class="dialog-actions">
+                  <button class="secondary-button" id="bill-reset-button" type="button">Reset</button>
+                  <button class="primary-button" id="bill-save-button" type="submit">Save Bill</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="panel table-panel">
+              <div class="table-toolbar">
+                <div>
+                  <h3>Bill List</h3>
+                  <p>Track all supplier bills for the active company.</p>
+                </div>
+              </div>
+
+              <div class="table-wrapper" id="bill-table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bill</th>
+                      <th>Supplier</th>
+                      <th>Status</th>
+                      <th>Approval</th>
+                      <th>Bill Date</th>
+                      <th>Due Date</th>
+                      <th class="numeric">Total</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="bill-table-body"></tbody>
+                </table>
+              </div>
+
+              <div class="empty-state hidden" id="bill-empty-state">
+                <h3>No bills yet</h3>
+                <p>Create your first supplier bill to start tracking payables.</p>
               </div>
             </section>
           </div>

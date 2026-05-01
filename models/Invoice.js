@@ -83,6 +83,10 @@ const invoiceSchema = new mongoose.Schema(
       enum: ["Draft", "Sent", "Paid", "Overdue"],
       default: "Draft",
     },
+    overdueNotifiedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

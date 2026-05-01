@@ -197,12 +197,14 @@ const state = {
   accounts: [],
   journalEntries: [],
   invoices: [],
+  bills: [],
   companySetup: getDefaultCompanySetup(),
   companySetupMode: "edit",
   editingAccountId: null,
   editingJournalId: null,
   editingJournalDescriptionId: null,
   editingInvoiceId: null,
+  editingBillId: null,
   currentView: "company-setup",
   sidebarCollapsed: false,
   mobileSidebarOpen: false,
@@ -269,6 +271,11 @@ const elements = {
   dashboardAccountsPayable: document.querySelector("#dashboard-accounts-payable"),
   dashboardOutstandingInvoices: document.querySelector("#dashboard-outstanding-invoices"),
   dashboardOverdueInvoices: document.querySelector("#dashboard-overdue-invoices"),
+  dashboardOutstandingBills: document.querySelector("#dashboard-outstanding-bills"),
+  dashboardOverdueBills: document.querySelector("#dashboard-overdue-bills"),
+  dashboardApprovalsWrapper: document.querySelector("#dashboard-approvals-wrapper"),
+  dashboardApprovalsBody: document.querySelector("#dashboard-approvals-body"),
+  dashboardApprovalsEmptyState: document.querySelector("#dashboard-approvals-empty-state"),
   dashboardTransactions: document.querySelector("#dashboard-transactions"),
   dashboardEmptyState: document.querySelector("#dashboard-empty-state"),
   dashboardStatus: document.querySelector("#dashboard-status"),
@@ -286,6 +293,7 @@ const elements = {
   companyState: document.querySelector("#company-state"),
   companyCity: document.querySelector("#company-city"),
   financialYearStart: document.querySelector("#financial-year-start"),
+  billApprovalThreshold: document.querySelector("#bill-approval-threshold"),
   companySetupReset: document.querySelector("#company-setup-reset"),
   companySetupGuide: document.querySelector("#company-setup-guide"),
   onboardingSubtitle: document.querySelector("#onboarding-subtitle"),
@@ -412,6 +420,23 @@ const elements = {
   invoiceTableWrapper: document.querySelector("#invoice-table-wrapper"),
   invoiceTableBody: document.querySelector("#invoice-table-body"),
   invoiceEmptyState: document.querySelector("#invoice-empty-state"),
+  billForm: document.querySelector("#bill-form"),
+  billNumber: document.querySelector("#bill-number"),
+  billStatus: document.querySelector("#bill-status"),
+  billSupplierName: document.querySelector("#bill-supplier-name"),
+  billSupplierEmail: document.querySelector("#bill-supplier-email"),
+  billDate: document.querySelector("#bill-date"),
+  billDueDate: document.querySelector("#bill-due-date"),
+  billLineItems: document.querySelector("#bill-line-items"),
+  addBillLineButton: document.querySelector("#add-bill-line-button"),
+  billSubtotal: document.querySelector("#bill-subtotal"),
+  billTaxPercentage: document.querySelector("#bill-tax-percentage"),
+  billTotalAmount: document.querySelector("#bill-total-amount"),
+  billFormError: document.querySelector("#bill-form-error"),
+  billResetButton: document.querySelector("#bill-reset-button"),
+  billTableWrapper: document.querySelector("#bill-table-wrapper"),
+  billTableBody: document.querySelector("#bill-table-body"),
+  billEmptyState: document.querySelector("#bill-empty-state"),
   confirmationDialog: document.querySelector("#confirmation-dialog"),
   confirmationDialogEyebrow: document.querySelector("#confirmation-dialog-eyebrow"),
   confirmationDialogTitle: document.querySelector("#confirmation-dialog-title"),
@@ -483,6 +508,15 @@ elements.invoiceLineItems.addEventListener("click", handleInvoiceLineItemClick);
 elements.invoiceStatus.addEventListener("change", renderInvoiceNumberPreview);
 elements.invoiceTaxPercentage.addEventListener("input", renderInvoiceTotals);
 elements.invoiceTableBody.addEventListener("click", handleInvoiceTableAction);
+elements.billForm.addEventListener("submit", handleBillSubmit);
+elements.billResetButton.addEventListener("click", resetBillForm);
+elements.addBillLineButton.addEventListener("click", () => addBillLineItemRow());
+elements.billLineItems.addEventListener("input", handleBillLineItemInput);
+elements.billLineItems.addEventListener("click", handleBillLineItemClick);
+elements.billStatus.addEventListener("change", renderBillNumberPreview);
+elements.billTaxPercentage.addEventListener("input", renderBillTotals);
+elements.billTableBody.addEventListener("click", handleBillTableAction);
+elements.dashboardApprovalsBody.addEventListener("click", handleDashboardApprovalAction);
 elements.reportFilterPanels.forEach((panel) => {
   panel.addEventListener("click", handleReportFilterAction);
   panel.addEventListener("change", handleReportFilterAction);
@@ -805,7 +839,9 @@ async function bootApplication() {
       state.accounts = syncOpeningBalanceEquityAccount([]);
       state.journalEntries = syncSystemJournalEntry([]);
       state.invoices = [];
+      state.bills = [];
       state.editingInvoiceId = null;
+      state.editingBillId = null;
       state.assistantMessages = [];
       state.setupBannerDismissed = false;
       state.companySwitcherOpen = false;
@@ -837,7 +873,9 @@ async function bootApplication() {
     state.accounts = syncOpeningBalanceEquityAccount([]);
     state.journalEntries = syncSystemJournalEntry([]);
     state.invoices = [];
+    state.bills = [];
     state.editingInvoiceId = null;
+    state.editingBillId = null;
     state.setupBannerDismissed = false;
     state.companySwitcherOpen = false;
     showAuthError(error.message);
@@ -861,7 +899,9 @@ async function initializeState() {
       Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
     );
     state.invoices = Array.isArray(bootstrap.invoices) ? bootstrap.invoices.map(normalizeInvoiceRecord) : [];
+    state.bills = Array.isArray(bootstrap.bills) ? bootstrap.bills.map(normalizeBillRecord) : [];
     state.editingInvoiceId = null;
+    state.editingBillId = null;
     state.assistantMessages = [];
     state.currentView = "dashboard";
     state.reportDateRange = getDefaultReportDateRange();
@@ -874,6 +914,7 @@ async function initializeState() {
     await ensureLocationSelectionsLoaded();
     await syncCompanySetupFields();
     resetInvoiceForm();
+    resetBillForm();
     clearSectionErrors(workspaceStatusKeys);
   } catch (error) {
     applyWorkspaceLoadError(error);
@@ -916,12 +957,17 @@ async function refreshWorkspaceData() {
       Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
     );
     state.invoices = Array.isArray(payload.invoices) ? payload.invoices.map(normalizeInvoiceRecord) : [];
+    state.bills = Array.isArray(payload.bills) ? payload.bills.map(normalizeBillRecord) : [];
     state.editingInvoiceId = null;
+    state.editingBillId = null;
     state.companySwitcherOpen = false;
     updateCurrencyFormatter();
     await syncCompanySetupFields(payload.company);
     if (!state.editingInvoiceId) {
       resetInvoiceForm();
+    }
+    if (!state.editingBillId) {
+      resetBillForm();
     }
     clearSectionErrors(workspaceStatusKeys);
   } catch (error) {
@@ -1035,6 +1081,9 @@ function normalizeCompanySetup(company) {
     stateProvince: String(companyData?.stateProvince || fallback.stateProvince).trim(),
     city: String(companyData?.city || fallback.city).trim(),
     financialYearStart: String(companyData?.financialYearStart || fallback.financialYearStart).trim(),
+    billApprovalThreshold: Number.isFinite(Number(companyData?.billApprovalThreshold))
+      ? Number(companyData?.billApprovalThreshold)
+      : fallback.billApprovalThreshold,
     currency: selectedCurrency?.code || fallback.currency,
   };
 }
@@ -1071,6 +1120,32 @@ function normalizeInvoiceRecord(invoice) {
     taxPercentage: Number(invoice?.taxPercentage) || 0,
     totalAmount: Number(invoice?.totalAmount) || 0,
     status: String(invoice?.status || "Draft").trim() || "Draft",
+  };
+}
+
+function normalizeBillRecord(bill) {
+  const lineItems = Array.isArray(bill?.lineItems)
+    ? bill.lineItems.map((line) => ({
+        description: String(line?.description || "").trim(),
+        quantity: Number(line?.quantity) || 0,
+        unitPrice: Number(line?.unitPrice) || 0,
+        amount: Number(line?.amount) || 0,
+      }))
+    : [];
+
+  return {
+    id: String(bill?.id || "").trim(),
+    billNumber: String(bill?.billNumber || "").trim(),
+    supplierName: String(bill?.supplierName || "").trim(),
+    supplierEmail: String(bill?.supplierEmail || "").trim(),
+    billDate: String(bill?.billDate || "").trim(),
+    dueDate: String(bill?.dueDate || "").trim(),
+    lineItems,
+    subtotal: Number(bill?.subtotal) || 0,
+    taxPercentage: Number(bill?.taxPercentage) || 0,
+    totalAmount: Number(bill?.totalAmount) || 0,
+    status: String(bill?.status || "Draft").trim() || "Draft",
+    approvalStatus: String(bill?.approvalStatus || "Not Required").trim() || "Not Required",
   };
 }
 
@@ -1345,6 +1420,7 @@ async function handleLogout() {
   state.activeCompanyId = "";
   state.accounts = [];
   state.journalEntries = [];
+  state.bills = [];
   state.companySetup = getDefaultCompanySetup();
   state.assistantMessages = [];
   state.authView = "login";
@@ -1368,6 +1444,7 @@ function render() {
   renderDashboard();
   renderCompanySetup();
   renderInvoices();
+  renderBills();
   renderAccountsTable();
   renderJournalTable();
   renderGeneralLedger();
@@ -1558,6 +1635,9 @@ function renderDashboard() {
   const accountsPayable = buildAccountsPayableBalance();
   const outstandingInvoices = getOutstandingInvoicesTotal();
   const overdueInvoices = getOverdueInvoicesCount();
+  const outstandingBills = getOutstandingBillsTotal();
+  const overdueBills = getOverdueBillsCount();
+  const pendingApprovalBills = getPendingApprovalBills();
   const recentTransactions = getVisibleJournalEntries()
     .slice()
     .sort((left, right) => new Date(right.date) - new Date(left.date))
@@ -1570,6 +1650,36 @@ function renderDashboard() {
   elements.dashboardAccountsPayable.textContent = currencyFormatter.format(accountsPayable);
   elements.dashboardOutstandingInvoices.textContent = currencyFormatter.format(outstandingInvoices);
   elements.dashboardOverdueInvoices.textContent = String(overdueInvoices);
+  elements.dashboardOutstandingBills.textContent = currencyFormatter.format(outstandingBills);
+  elements.dashboardOverdueBills.textContent = String(overdueBills);
+  safeSetInnerHTML(elements.dashboardApprovalsBody, "");
+  if (pendingApprovalBills.length) {
+    elements.dashboardApprovalsWrapper.classList.remove("hidden");
+    elements.dashboardApprovalsEmptyState.classList.add("hidden");
+    pendingApprovalBills.forEach((bill) => {
+      const row = document.createElement("tr");
+      safeSetInnerHTML(
+        row,
+        `
+          <td><strong>${escapeHtml(bill.billNumber)}</strong></td>
+          <td>${escapeHtml(bill.supplierName)}</td>
+          <td>${escapeHtml(formatDate(bill.dueDate))}</td>
+          <td class="numeric">${escapeHtml(currencyFormatter.format(bill.totalAmount))}</td>
+          <td><span class="status-badge unbalanced">${escapeHtml(bill.approvalStatus)}</span></td>
+          <td>
+            <div class="table-actions">
+              <button class="ghost-button" type="button" data-action="approve-bill" data-id="${bill.id}">Approve</button>
+              <button class="ghost-button danger" type="button" data-action="reject-bill" data-id="${bill.id}">Reject</button>
+            </div>
+          </td>
+        `,
+      );
+      elements.dashboardApprovalsBody.appendChild(row);
+    });
+  } else {
+    elements.dashboardApprovalsWrapper.classList.add("hidden");
+    elements.dashboardApprovalsEmptyState.classList.remove("hidden");
+  }
   safeSetInnerHTML(elements.dashboardTransactions, "");
   elements.dashboardTransactions.classList.remove("hidden");
   renderSectionFeedback(elements.dashboardStatus, { visible: false });
@@ -1665,6 +1775,23 @@ function getOutstandingInvoicesTotal() {
 
 function getOverdueInvoicesCount() {
   return state.invoices.filter((invoice) => invoice.status === "Overdue").length;
+}
+
+function getOutstandingBillsTotal() {
+  return state.bills
+    .filter((bill) => bill.status === "Received" || bill.status === "Overdue")
+    .reduce((sum, bill) => sum + (Number(bill.totalAmount) || 0), 0);
+}
+
+function getOverdueBillsCount() {
+  return state.bills.filter((bill) => bill.status === "Overdue").length;
+}
+
+function getPendingApprovalBills() {
+  return state.bills
+    .filter((bill) => bill.approvalStatus === "Pending Approval")
+    .slice()
+    .sort((left, right) => new Date(left.dueDate) - new Date(right.dueDate));
 }
 
 function renderCompanySetup() {
@@ -1791,6 +1918,13 @@ async function syncCompanySetupFields(companySource = state.companySetup) {
   if (elements.financialYearStart) {
     elements.financialYearStart.value = company.financialYearStart || "";
   }
+  if (elements.billApprovalThreshold) {
+    elements.billApprovalThreshold.value = String(
+      Number.isFinite(Number(company.billApprovalThreshold))
+        ? Number(company.billApprovalThreshold)
+        : getDefaultCompanySetup().billApprovalThreshold,
+    );
+  }
 }
 
 function clearCompanySetupFormFields() {
@@ -1831,6 +1965,9 @@ function clearCompanySetupFormFields() {
   if (elements.financialYearStart) {
     elements.financialYearStart.value = "";
   }
+  if (elements.billApprovalThreshold) {
+    elements.billApprovalThreshold.value = String(getDefaultCompanySetup().billApprovalThreshold);
+  }
 
   handleCurrencySelectionInput();
 }
@@ -1865,6 +2002,11 @@ function readCompanySetupPayloadFromForm() {
       stateProvince: stateInput?.value.trim() || "",
       city: cityInput?.value.trim() || "",
       financialYearStart: financialYearStartInput?.value || "",
+      billApprovalThreshold: Number.isFinite(
+        Number(document.getElementById("bill-approval-threshold")?.value),
+      )
+        ? Number(document.getElementById("bill-approval-threshold")?.value)
+        : 100000,
     },
   };
 }
@@ -2255,6 +2397,364 @@ async function handleInvoiceTableAction(event) {
   }
 }
 
+function renderBills() {
+  if (!elements.billForm) {
+    return;
+  }
+
+  if (!elements.billLineItems.children.length && !state.editingBillId) {
+    resetBillForm();
+  }
+
+  renderBillNumberPreview();
+  renderBillTotals();
+  safeSetInnerHTML(elements.billTableBody, "");
+
+  if (!state.bills.length) {
+    elements.billTableWrapper.classList.add("hidden");
+    elements.billEmptyState.classList.remove("hidden");
+    return;
+  }
+
+  elements.billTableWrapper.classList.remove("hidden");
+  elements.billEmptyState.classList.add("hidden");
+
+  state.bills
+    .slice()
+    .sort((left, right) => new Date(right.billDate) - new Date(left.billDate))
+    .forEach((bill) => {
+      const row = document.createElement("tr");
+      safeSetInnerHTML(
+        row,
+        `
+          <td>
+            <strong>${escapeHtml(bill.billNumber)}</strong>
+          </td>
+          <td>
+            <strong>${escapeHtml(bill.supplierName)}</strong>
+            <div class="ledger-note">${escapeHtml(bill.supplierEmail || "No email")}</div>
+          </td>
+          <td><span class="status-badge invoice-status-${escapeHtml(normalizeString(bill.status))}">${escapeHtml(bill.status)}</span></td>
+          <td><span class="status-badge ${bill.approvalStatus === "Approved" || bill.approvalStatus === "Not Required" ? "balanced" : "unbalanced"}">${escapeHtml(bill.approvalStatus)}</span></td>
+          <td>${escapeHtml(formatDate(bill.billDate))}</td>
+          <td>${escapeHtml(formatDate(bill.dueDate))}</td>
+          <td class="numeric">${escapeHtml(currencyFormatter.format(bill.totalAmount))}</td>
+          <td>
+            <div class="table-actions">
+              <button class="ghost-button" type="button" data-action="edit-bill" data-id="${bill.id}">Edit</button>
+              <button class="ghost-button" type="button" data-action="mark-paid-bill" data-id="${bill.id}">Mark as Paid</button>
+              <button class="ghost-button" type="button" data-action="export-bill" data-id="${bill.id}">Export PDF</button>
+              <button class="ghost-button danger" type="button" data-action="delete-bill" data-id="${bill.id}">Delete</button>
+            </div>
+          </td>
+        `,
+      );
+      elements.billTableBody.appendChild(row);
+    });
+}
+
+function renderBillNumberPreview() {
+  if (!elements.billNumber) {
+    return;
+  }
+
+  const editingBill = getEditingBill();
+  elements.billNumber.value = editingBill?.billNumber || getNextBillNumberPreview();
+}
+
+function getNextBillNumberPreview() {
+  const maxSequence = state.bills.reduce((maxValue, bill) => {
+    const match = bill.billNumber.match(/(\d+)$/);
+    return match ? Math.max(maxValue, Number(match[1])) : maxValue;
+  }, 0);
+  return `BILL-${String(maxSequence + 1).padStart(4, "0")}`;
+}
+
+function createEmptyBillLineItem() {
+  return {
+    description: "",
+    quantity: 1,
+    unitPrice: 0,
+    amount: 0,
+  };
+}
+
+function addBillLineItemRow(line = createEmptyBillLineItem()) {
+  const row = document.createElement("div");
+  row.className = "line-item-row bill-line-row";
+  safeSetInnerHTML(
+    row,
+    `
+      <label class="full-span">
+        <span>Description</span>
+        <input class="bill-line-description" type="text" value="${escapeHtml(line.description || "")}" />
+      </label>
+      <label>
+        <span>Quantity</span>
+        <input class="bill-line-quantity" type="number" min="0" step="0.01" value="${escapeHtml(String(line.quantity ?? 1))}" />
+      </label>
+      <label>
+        <span>Unit Price</span>
+        <input class="bill-line-unit-price" type="number" min="0" step="0.01" value="${escapeHtml(String(line.unitPrice ?? 0))}" />
+      </label>
+      <label>
+        <span>Amount</span>
+        <input class="bill-line-amount" type="text" readonly value="${escapeHtml(currencyFormatter.format(Number(line.amount) || 0))}" />
+      </label>
+      <button class="line-remove-button" type="button">Remove</button>
+    `,
+  );
+  elements.billLineItems.appendChild(row);
+  syncBillLineAmount(row);
+}
+
+function handleBillLineItemInput(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+
+  const row = target.closest(".bill-line-row");
+  if (!row) {
+    return;
+  }
+
+  syncBillLineAmount(row);
+  renderBillTotals();
+}
+
+function handleBillLineItemClick(event) {
+  const target = event.target instanceof Element ? event.target.closest(".line-remove-button") : null;
+  if (!(target instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  target.closest(".bill-line-row")?.remove();
+  if (!elements.billLineItems.children.length) {
+    addBillLineItemRow();
+  }
+  renderBillTotals();
+}
+
+function syncBillLineAmount(row) {
+  const quantity = Number(row.querySelector(".bill-line-quantity")?.value) || 0;
+  const unitPrice = Number(row.querySelector(".bill-line-unit-price")?.value) || 0;
+  const amount = quantity * unitPrice;
+  const amountInput = row.querySelector(".bill-line-amount");
+  if (amountInput instanceof HTMLInputElement) {
+    amountInput.value = currencyFormatter.format(amount);
+  }
+}
+
+function collectBillLineItemsFromForm() {
+  return [...elements.billLineItems.querySelectorAll(".bill-line-row")]
+    .map((row) => ({
+      description: row.querySelector(".bill-line-description")?.value.trim() || "",
+      quantity: Number(row.querySelector(".bill-line-quantity")?.value) || 0,
+      unitPrice: Number(row.querySelector(".bill-line-unit-price")?.value) || 0,
+    }))
+    .filter((line) => line.description || line.quantity > 0 || line.unitPrice > 0)
+    .map((line) => ({
+      ...line,
+      amount: line.quantity * line.unitPrice,
+    }));
+}
+
+function renderBillTotals() {
+  const lineItems = collectBillLineItemsFromForm();
+  const subtotal = lineItems.reduce((sum, line) => sum + line.amount, 0);
+  const taxPercentage = Number(elements.billTaxPercentage.value) || 0;
+  const totalAmount = subtotal + subtotal * (taxPercentage / 100);
+
+  elements.billSubtotal.value = currencyFormatter.format(subtotal);
+  elements.billTotalAmount.value = currencyFormatter.format(totalAmount);
+}
+
+function resetBillForm() {
+  if (!elements.billForm) {
+    return;
+  }
+
+  state.editingBillId = null;
+  elements.billSupplierName.value = "";
+  elements.billSupplierEmail.value = "";
+  elements.billDate.value = getTodayDate();
+  elements.billDueDate.value = getTodayDate();
+  elements.billStatus.value = "Draft";
+  elements.billTaxPercentage.value = "0";
+  safeSetInnerHTML(elements.billLineItems, "");
+  addBillLineItemRow();
+  renderBillNumberPreview();
+  renderBillTotals();
+  hideBillError();
+}
+
+function getEditingBill() {
+  return state.bills.find((bill) => bill.id === state.editingBillId) || null;
+}
+
+function showBillError(message) {
+  elements.billFormError.textContent = message;
+  elements.billFormError.classList.remove("hidden");
+}
+
+function hideBillError() {
+  elements.billFormError.textContent = "";
+  elements.billFormError.classList.add("hidden");
+}
+
+async function handleBillSubmit(event) {
+  event.preventDefault();
+  hideBillError();
+  const isEditingBill = Boolean(state.editingBillId);
+
+  const lineItems = collectBillLineItemsFromForm();
+  const subtotal = lineItems.reduce((sum, line) => sum + line.amount, 0);
+  const taxPercentage = Number(elements.billTaxPercentage.value) || 0;
+  const totalAmount = subtotal + subtotal * (taxPercentage / 100);
+  const payload = {
+    billNumber: elements.billNumber.value.trim(),
+    supplierName: elements.billSupplierName.value.trim(),
+    supplierEmail: elements.billSupplierEmail.value.trim(),
+    billDate: elements.billDate.value,
+    dueDate: elements.billDueDate.value,
+    lineItems,
+    taxPercentage,
+    status: elements.billStatus.value,
+    subtotal,
+    totalAmount,
+  };
+
+  if (!payload.supplierName || !payload.billDate || !payload.dueDate || !lineItems.length) {
+    showBillError("Complete supplier details, bill dates, and at least one line item.");
+    return;
+  }
+
+  try {
+    if (state.editingBillId) {
+      await apiFetch(`/api/bills/${state.editingBillId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await apiFetch("/api/bills", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
+
+    await refreshWorkspaceData();
+    setActiveView("bills");
+    resetBillForm();
+    showToast(isEditingBill ? "Bill updated successfully" : "Bill created successfully");
+  } catch (error) {
+    showBillError(error.message);
+    showToast(`Unable to save bill. ${error.message}`, "error");
+  }
+}
+
+function startEditingBill(bill) {
+  if (!bill) {
+    return;
+  }
+
+  state.editingBillId = bill.id;
+  elements.billSupplierName.value = bill.supplierName;
+  elements.billSupplierEmail.value = bill.supplierEmail;
+  elements.billDate.value = bill.billDate;
+  elements.billDueDate.value = bill.dueDate;
+  elements.billStatus.value = bill.status === "Overdue" ? "Received" : bill.status;
+  elements.billTaxPercentage.value = String(bill.taxPercentage || 0);
+  safeSetInnerHTML(elements.billLineItems, "");
+  bill.lineItems.forEach((line) => addBillLineItemRow(line));
+  renderBillNumberPreview();
+  renderBillTotals();
+  hideBillError();
+  setActiveView("bills");
+}
+
+async function handleBillTableAction(event) {
+  const button = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const bill = state.bills.find((item) => item.id === button.dataset.id);
+  if (!bill) {
+    return;
+  }
+
+  const action = button.dataset.action;
+  if (action === "edit-bill") {
+    startEditingBill(bill);
+    return;
+  }
+
+  if (action === "mark-paid-bill") {
+    try {
+      await apiFetch(`/api/bills/${bill.id}/mark-paid`, { method: "POST" });
+      await refreshWorkspaceData();
+      setActiveView("bills");
+      showToast("Bill marked as paid");
+    } catch (error) {
+      showToast(`Unable to mark bill as paid. ${error.message}`, "error");
+    }
+    return;
+  }
+
+  if (action === "export-bill") {
+    exportBillToPdf(bill);
+    return;
+  }
+
+  if (action === "delete-bill") {
+    const confirmed = await confirmDestructiveAction({
+      eyebrow: "Delete Bill",
+      title: "Delete Bill?",
+      message: "Are you sure you want to delete this bill?",
+      confirmLabel: "Confirm Delete",
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/bills/${bill.id}`, { method: "DELETE" });
+      await refreshWorkspaceData();
+      if (state.editingBillId === bill.id) {
+        resetBillForm();
+      }
+      setActiveView("bills");
+      showToast("Bill deleted successfully");
+    } catch (error) {
+      showToast(`Unable to delete bill. ${error.message}`, "error");
+    }
+  }
+}
+
+async function handleDashboardApprovalAction(event) {
+  const button = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const action = button.dataset.action;
+  const billId = button.dataset.id;
+  if (!billId || (action !== "approve-bill" && action !== "reject-bill")) {
+    return;
+  }
+
+  try {
+    await apiFetch(`/api/bills/${billId}/${action === "approve-bill" ? "approve" : "reject"}`, {
+      method: "POST",
+    });
+    await refreshWorkspaceData();
+    showToast(action === "approve-bill" ? "Bill approved successfully" : "Bill rejected successfully");
+  } catch (error) {
+    showToast(`Unable to update bill approval. ${error.message}`, "error");
+  }
+}
+
 function exportInvoiceToPdf(invoice) {
   const jsPDFConstructor = window.jspdf?.jsPDF;
   if (typeof jsPDFConstructor !== "function" || typeof jsPDFConstructor.API?.autoTable !== "function") {
@@ -2310,6 +2810,63 @@ function exportInvoiceToPdf(invoice) {
   doc.setTextColor(100, 116, 139);
   doc.text("Generated by LedgrAI", marginX, pageHeight - 20);
   doc.save(buildPdfFilename(`Invoice-${invoice.invoiceNumber}`, invoice.invoiceDate || getTodayDate()));
+}
+
+function exportBillToPdf(bill) {
+  const jsPDFConstructor = window.jspdf?.jsPDF;
+  if (typeof jsPDFConstructor !== "function" || typeof jsPDFConstructor.API?.autoTable !== "function") {
+    showToast("PDF export library failed to load. Refresh and try again.", "error");
+    return;
+  }
+
+  const context = getPdfDocumentContext();
+  const doc = new jsPDFConstructor({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+  });
+  const marginX = 40;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text(appDisplayName, marginX, 34);
+  doc.setFontSize(16);
+  doc.text(`Bill ${bill.billNumber}`, pageWidth - marginX, 34, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Company: ${context.companyName}`, marginX, 52);
+  doc.text(`Workspace: ${context.workspaceName}`, marginX, 66);
+  doc.text(`Supplier: ${bill.supplierName}`, marginX, 92);
+  doc.text(`Status: ${bill.status}`, pageWidth - marginX, 52, { align: "right" });
+  doc.text(`Bill Date: ${formatDate(bill.billDate)}`, pageWidth - marginX, 66, { align: "right" });
+  doc.text(`Due Date: ${formatDate(bill.dueDate)}`, pageWidth - marginX, 80, { align: "right" });
+
+  doc.autoTable({
+    startY: 112,
+    head: [["Description", "Qty", "Unit Price", "Amount"]],
+    body: bill.lineItems.map((line) => [
+      line.description,
+      String(line.quantity),
+      formatPdfCurrency(line.unitPrice),
+      formatPdfCurrency(line.amount),
+    ]),
+    foot: [
+      ["Subtotal", "", "", formatPdfCurrency(bill.subtotal)],
+      ["Tax", "", "", `${bill.taxPercentage}%`],
+      ["Total", "", "", formatPdfCurrency(bill.totalAmount)],
+    ],
+    margin: { left: marginX, right: marginX, bottom: 44 },
+    columnStyles: buildNumericColumnStyles([1, 2, 3]),
+    headStyles: { fillColor: [4, 120, 87], textColor: [255, 255, 255] },
+    footStyles: { fillColor: [236, 253, 245], textColor: [6, 78, 59], fontStyle: "bold" },
+  });
+
+  doc.setFontSize(9);
+  doc.setTextColor(100, 116, 139);
+  doc.text("Generated by LedgrAI", marginX, pageHeight - 20);
+  doc.save(buildPdfFilename(`Bill-${bill.billNumber}`, bill.billDate || getTodayDate()));
 }
 
 function handleCurrencySelectionInput() {
@@ -2430,6 +2987,7 @@ function getDefaultCompanySetup() {
     stateProvince: "",
     city: "",
     financialYearStart: "",
+    billApprovalThreshold: 100000,
   };
 }
 
@@ -2509,6 +3067,7 @@ function getViewTitle(viewName) {
     dashboard: "Dashboard",
     "company-setup": "Company Setup",
     invoices: "Invoices",
+    bills: "Bills",
     chart: "Workspace",
     journal: "Journal Entries",
     ledger: "General Ledger",
@@ -5576,6 +6135,16 @@ function buildAssistantFinancialContext() {
           credit: Number(line.credit) || 0,
         };
       }),
+    })),
+    bills: state.bills.map((bill) => ({
+      billNumber: bill.billNumber,
+      supplierName: bill.supplierName,
+      supplierEmail: bill.supplierEmail,
+      billDate: bill.billDate,
+      dueDate: bill.dueDate,
+      totalAmount: bill.totalAmount,
+      status: bill.status,
+      approvalStatus: bill.approvalStatus,
     })),
     trialBalance: {
       totalDebits: trialBalance.totalDebits,

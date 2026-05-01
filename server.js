@@ -1,6 +1,8 @@
 const path = require("path");
 const express = require("express");
 const mongoose = require("mongoose");
+const nodemailer = require("nodemailer");
+const cron = require("node-cron");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
@@ -12,6 +14,7 @@ const Company = require("./models/Company");
 const Account = require("./models/Account");
 const JournalEntry = require("./models/JournalEntry");
 const Invoice = require("./models/Invoice");
+const Bill = require("./models/Bill");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -20,9 +23,16 @@ const groqApiKey = process.env.GROQ_API_KEY || "";
 const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const mongoUri = process.env.MONGODB_URI || "";
 const jwtSecret = process.env.JWT_SECRET || "";
+const smtpHost = process.env.SMTP_HOST || "";
+const smtpPort = Number(process.env.SMTP_PORT) || 0;
+const smtpUser = process.env.SMTP_USER || "";
+const smtpPass = process.env.SMTP_PASS || "";
+const appBaseUrl = process.env.APP_URL || process.env.APP_BASE_URL || `http://localhost:${port}`;
 const authCookieName = "ledgrai_token";
 const isProduction = process.env.NODE_ENV === "production";
 const allowedAccountTypes = new Set(["Asset", "Liability", "Equity", "Revenue", "Expense"]);
+const schedulerTimezone = "Africa/Lagos";
+let schedulerInitialized = false;
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
@@ -103,6 +113,7 @@ app.post("/auth/register", authLimiter, async (req, res) => {
       passwordHash,
     });
 
+    await sendWelcomeEmail(user);
     setAuthCookie(res, user._id.toString());
     return res.status(201).json({
       user: serializeUser(user),
@@ -174,7 +185,7 @@ app.get("/api/bootstrap", async (req, res) => {
   try {
     const { companies, activeCompany } = await resolveUserCompanies(req.user);
     const activeCompanyId = activeCompany?._id || null;
-    const [accounts, journalEntries, invoices] = activeCompanyId
+    const [accounts, journalEntries, invoices, bills] = activeCompanyId
       ? await Promise.all([
           Account.find({ userId: req.user._id, companyId: activeCompanyId })
             .sort({ code: 1, name: 1 })
@@ -185,8 +196,11 @@ app.get("/api/bootstrap", async (req, res) => {
           Invoice.find({ userId: req.user._id, companyId: activeCompanyId })
             .sort({ invoiceDate: -1, createdAt: -1 })
             .lean(),
+          Bill.find({ userId: req.user._id, companyId: activeCompanyId })
+            .sort({ billDate: -1, createdAt: -1 })
+            .lean(),
         ])
-      : [[], [], []];
+      : [[], [], [], []];
 
     return res.json({
       user: serializeUser(req.user),
@@ -196,6 +210,7 @@ app.get("/api/bootstrap", async (req, res) => {
       accounts: accounts.map(serializeAccount),
       journalEntries: journalEntries.map(serializeJournalEntry),
       invoices: invoices.map(serializeInvoice),
+      bills: bills.map(serializeBill),
     });
   } catch (error) {
     return sendServerError(res, error, "Failed to load workspace data.");
@@ -374,6 +389,7 @@ app.post("/api/invoices", async (req, res) => {
       companyId: activeCompany._id,
       ...payload,
       invoiceNumber,
+      overdueNotifiedAt: null,
     });
 
     await syncInvoiceJournalEntry(req.user._id, activeCompany._id, invoice);
@@ -401,7 +417,15 @@ app.put("/api/invoices/:id", async (req, res) => {
     const payload = await normalizeInvoicePayload(req.body || {}, { invoiceNumber: existingInvoice.invoiceNumber });
     const invoice = await Invoice.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
-      { $set: { ...payload, invoiceNumber: existingInvoice.invoiceNumber } },
+      {
+        $set: {
+          ...payload,
+          invoiceNumber: existingInvoice.invoiceNumber,
+          overdueNotifiedAt: shouldResetInvoiceOverdueNotification(payload)
+            ? null
+            : existingInvoice.overdueNotifiedAt,
+        },
+      },
       { new: true, runValidators: true },
     );
 
@@ -420,7 +444,7 @@ app.post("/api/invoices/:id/mark-paid", async (req, res) => {
     const activeCompany = await requireActiveCompany(req.user);
     const invoice = await Invoice.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
-      { $set: { status: "Paid" } },
+      { $set: { status: "Paid", overdueNotifiedAt: null } },
       { new: true },
     );
 
@@ -456,6 +480,171 @@ app.delete("/api/invoices/:id", async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     return sendServerError(res, error, "Failed to delete invoice.");
+  }
+});
+
+app.post("/api/bills", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const payload = await normalizeBillPayload(req.body || {});
+    const billNumber = payload.billNumber || (await generateNextBillNumber(req.user._id, activeCompany._id));
+    const approvalStatus = resolveBillApprovalStatus({
+      billStatus: payload.status,
+      totalAmount: payload.totalAmount,
+      threshold: activeCompany.billApprovalThreshold,
+    });
+
+    const bill = await Bill.create({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      ...payload,
+      billNumber,
+      approvalStatus,
+    });
+
+    await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    return res.status(201).json({ bill: serializeBill(bill) });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ error: "Bill number must be unique." });
+    }
+    return sendServerError(res, error, "Failed to create bill.");
+  }
+});
+
+app.put("/api/bills/:id", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const existingBill = await Bill.findOne({
+      _id: req.params.id,
+      userId: req.user._id,
+      companyId: activeCompany._id,
+    });
+    if (!existingBill) {
+      return res.status(404).json({ error: "Bill not found." });
+    }
+
+    const payload = await normalizeBillPayload(req.body || {}, { billNumber: existingBill.billNumber });
+    const approvalStatus = resolveBillApprovalStatus({
+      billStatus: payload.status,
+      totalAmount: payload.totalAmount,
+      threshold: activeCompany.billApprovalThreshold,
+      existingApprovalStatus: existingBill.approvalStatus,
+    });
+
+    const bill = await Bill.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
+      {
+        $set: {
+          ...payload,
+          billNumber: existingBill.billNumber,
+          approvalStatus,
+        },
+      },
+      { new: true, runValidators: true },
+    );
+
+    await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    return res.json({ bill: serializeBill(bill) });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ error: "Bill number must be unique." });
+    }
+    return sendServerError(res, error, "Failed to update bill.");
+  }
+});
+
+app.post("/api/bills/:id/mark-paid", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const existingBill = await Bill.findOne({
+      _id: req.params.id,
+      userId: req.user._id,
+      companyId: activeCompany._id,
+    });
+    if (!existingBill) {
+      return res.status(404).json({ error: "Bill not found." });
+    }
+
+    const approvalStatus = resolveBillApprovalStatus({
+      billStatus: "Paid",
+      totalAmount: existingBill.totalAmount,
+      threshold: activeCompany.billApprovalThreshold,
+      existingApprovalStatus: existingBill.approvalStatus,
+    });
+
+    const bill = await Bill.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
+      { $set: { status: "Paid", approvalStatus } },
+      { new: true },
+    );
+
+    await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    return res.json({ bill: serializeBill(bill) });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to mark bill as paid.");
+  }
+});
+
+app.post("/api/bills/:id/approve", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const bill = await Bill.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
+      { $set: { approvalStatus: "Approved" } },
+      { new: true },
+    );
+    if (!bill) {
+      return res.status(404).json({ error: "Bill not found." });
+    }
+
+    await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    return res.json({ bill: serializeBill(bill) });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to approve bill.");
+  }
+});
+
+app.post("/api/bills/:id/reject", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const bill = await Bill.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
+      { $set: { approvalStatus: "Rejected" } },
+      { new: true },
+    );
+    if (!bill) {
+      return res.status(404).json({ error: "Bill not found." });
+    }
+
+    await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    return res.json({ bill: serializeBill(bill) });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to reject bill.");
+  }
+});
+
+app.delete("/api/bills/:id", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const bill = await Bill.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.user._id,
+      companyId: activeCompany._id,
+    });
+    if (!bill) {
+      return res.status(404).json({ error: "Bill not found." });
+    }
+
+    await JournalEntry.deleteMany({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      sourceType: "bill",
+      sourceId: bill._id.toString(),
+    });
+    return res.json({ success: true });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to delete bill.");
   }
 });
 
@@ -588,6 +777,7 @@ async function start() {
 
   await mongoose.connect(mongoUri);
   await mongoose.connection.collection("companies").dropIndex("userId_1").catch(() => {});
+  initializeSchedulers();
   app.listen(port, () => {
     console.log(`LedgrAI running at http://localhost:${port}`);
   });
@@ -664,6 +854,7 @@ function serializeCompany(company) {
       email: "",
       currency: "NGN",
       financialYearStart: "",
+      billApprovalThreshold: 100000,
     };
   }
 
@@ -680,6 +871,9 @@ function serializeCompany(company) {
     stateProvince: company.stateProvince || "",
     city: company.city || "",
     financialYearStart: company.financialYearStart || "",
+    billApprovalThreshold: Number.isFinite(Number(company.billApprovalThreshold))
+      ? Number(company.billApprovalThreshold)
+      : 100000,
   };
 }
 
@@ -742,6 +936,41 @@ function serializeInvoice(invoice) {
   };
 }
 
+function serializeBill(bill) {
+  if (!bill) {
+    return null;
+  }
+
+  const effectiveStatus =
+    bill.status === "Paid"
+      ? "Paid"
+      : bill.status === "Draft"
+        ? "Draft"
+        : isBillOverdue(bill.dueDate)
+          ? "Overdue"
+          : "Received";
+
+  return {
+    id: bill._id.toString(),
+    billNumber: bill.billNumber || "",
+    supplierName: bill.supplierName || "",
+    supplierEmail: bill.supplierEmail || "",
+    billDate: bill.billDate || "",
+    dueDate: bill.dueDate || "",
+    lineItems: (bill.lineItems || []).map((line) => ({
+      description: line.description || "",
+      quantity: Number(line.quantity) || 0,
+      unitPrice: Number(line.unitPrice) || 0,
+      amount: Number(line.amount) || 0,
+    })),
+    subtotal: Number(bill.subtotal) || 0,
+    taxPercentage: Number(bill.taxPercentage) || 0,
+    totalAmount: Number(bill.totalAmount) || 0,
+    status: effectiveStatus,
+    approvalStatus: bill.approvalStatus || "Not Required",
+  };
+}
+
 function normalizeCompanyPayload(payload) {
   const currency = sanitizeUppercaseCode(payload.currency || "NGN", 3);
   const financialYearStart = sanitizeDateInput(payload.financialYearStart || "");
@@ -757,6 +986,13 @@ function normalizeCompanyPayload(payload) {
     stateProvince: sanitizeText(payload.stateProvince || "", 120),
     city: sanitizeText(payload.city || "", 120),
     financialYearStart,
+    billApprovalThreshold: Math.max(
+      0,
+      parseNumberField(
+        typeof payload.billApprovalThreshold === "undefined" ? 100000 : payload.billApprovalThreshold,
+        "Bill approval threshold",
+      ),
+    ),
   };
 }
 
@@ -831,6 +1067,41 @@ async function normalizeInvoicePayload(payload, options = {}) {
   };
 }
 
+async function normalizeBillPayload(payload, options = {}) {
+  const linesSource = Array.isArray(payload.lineItems) ? payload.lineItems : [];
+  const lineItems = linesSource
+    .map((line, index) => normalizeBillLine(line, index))
+    .filter((line) => line.description || line.quantity > 0 || line.unitPrice > 0 || line.amount > 0);
+
+  if (!lineItems.length) {
+    throw createHttpError(400, "Bill must include at least one line item.");
+  }
+
+  const subtotal = lineItems.reduce((sum, line) => sum + line.amount, 0);
+  const taxPercentage = parseNumberField(payload.taxPercentage, "Tax percentage");
+  const totalAmount = subtotal + subtotal * (taxPercentage / 100);
+  const requestedStatus = sanitizeText(payload.status || "Draft", 20);
+  const normalizedStatus =
+    requestedStatus === "Paid"
+      ? "Paid"
+      : requestedStatus === "Received" || requestedStatus === "Overdue"
+        ? "Received"
+        : "Draft";
+
+  return {
+    billNumber: sanitizeUppercaseCode(payload.billNumber || options.billNumber || "", 32),
+    supplierName: sanitizeText(payload.supplierName || "", 120),
+    supplierEmail: sanitizeEmail(payload.supplierEmail || ""),
+    billDate: sanitizeDateInput(payload.billDate || ""),
+    dueDate: sanitizeDateInput(payload.dueDate || ""),
+    lineItems,
+    subtotal,
+    taxPercentage,
+    totalAmount,
+    status: normalizedStatus,
+  };
+}
+
 function normalizeInvoiceLine(line, index) {
   const description = sanitizeText(line?.description || "", 240);
   const quantity = parseNumberField(line?.quantity, `Invoice line ${index + 1} quantity`);
@@ -847,6 +1118,32 @@ function normalizeInvoiceLine(line, index) {
 
   if (unitPrice < 0) {
     throw createHttpError(400, `Invoice line ${index + 1} unit price must be zero or greater.`);
+  }
+
+  return {
+    description,
+    quantity,
+    unitPrice,
+    amount,
+  };
+}
+
+function normalizeBillLine(line, index) {
+  const description = sanitizeText(line?.description || "", 240);
+  const quantity = parseNumberField(line?.quantity, `Bill line ${index + 1} quantity`);
+  const unitPrice = parseNumberField(line?.unitPrice, `Bill line ${index + 1} unit price`);
+  const amount = quantity * unitPrice;
+
+  if (!description) {
+    throw createHttpError(400, `Bill line ${index + 1} description is required.`);
+  }
+
+  if (quantity <= 0) {
+    throw createHttpError(400, `Bill line ${index + 1} quantity must be greater than zero.`);
+  }
+
+  if (unitPrice < 0) {
+    throw createHttpError(400, `Bill line ${index + 1} unit price must be zero or greater.`);
   }
 
   return {
@@ -892,6 +1189,8 @@ async function resolveUserCompanies(user) {
     const hasLegacyFinancialData = await Promise.all([
       Account.exists({ userId: user._id, companyId: { $exists: false } }),
       JournalEntry.exists({ userId: user._id, companyId: { $exists: false } }),
+      Invoice.exists({ userId: user._id, companyId: { $exists: false } }),
+      Bill.exists({ userId: user._id, companyId: { $exists: false } }),
     ]).then((results) => results.some(Boolean));
 
     if (hasLegacyFinancialData) {
@@ -938,6 +1237,10 @@ async function backfillLegacyCompanyData(userId, companyId) {
       { userId, companyId: { $exists: false } },
       { $set: { companyId } },
     ),
+    Bill.updateMany(
+      { userId, companyId: { $exists: false } },
+      { $set: { companyId } },
+    ),
   ]);
 }
 
@@ -951,7 +1254,26 @@ async function generateNextInvoiceNumber(userId, companyId) {
   return `INV-${String(nextSequence).padStart(4, "0")}`;
 }
 
+async function generateNextBillNumber(userId, companyId) {
+  const latestBill = await Bill.findOne({ userId, companyId })
+    .sort({ createdAt: -1, billNumber: -1 })
+    .lean();
+
+  const lastSequenceMatch = latestBill?.billNumber?.match(/(\d+)$/);
+  const nextSequence = lastSequenceMatch ? Number(lastSequenceMatch[1]) + 1 : 1;
+  return `BILL-${String(nextSequence).padStart(4, "0")}`;
+}
+
 function isInvoiceOverdue(dueDate) {
+  if (!dueDate) {
+    return false;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  return dueDate < today;
+}
+
+function isBillOverdue(dueDate) {
   if (!dueDate) {
     return false;
   }
@@ -1043,6 +1365,473 @@ async function syncInvoiceJournalEntry(userId, companyId, invoice) {
       },
     ],
   });
+}
+
+function shouldResetInvoiceOverdueNotification(invoiceLike) {
+  const normalizedStatus = String(invoiceLike?.status || "").trim();
+  if (normalizedStatus === "Draft" || normalizedStatus === "Paid") {
+    return true;
+  }
+
+  return !isInvoiceOverdue(invoiceLike?.dueDate || "");
+}
+
+function resolveBillApprovalStatus({
+  billStatus,
+  totalAmount,
+  threshold,
+  existingApprovalStatus = "Not Required",
+}) {
+  if (billStatus === "Draft") {
+    return "Not Required";
+  }
+
+  if (Number(totalAmount) > Number(threshold || 0)) {
+    if (existingApprovalStatus === "Approved" || existingApprovalStatus === "Rejected") {
+      return existingApprovalStatus;
+    }
+    return "Pending Approval";
+  }
+
+  return "Approved";
+}
+
+function shouldCreateBillJournalEntry(bill) {
+  if (!bill) {
+    return false;
+  }
+
+  return (
+    (bill.status === "Received" || bill.status === "Paid" || isBillOverdue(bill.dueDate)) &&
+    bill.approvalStatus === "Approved"
+  );
+}
+
+function deriveBillExpenseAccountName(description) {
+  const cleaned = sanitizeText(description || "", 70);
+  return cleaned ? `Expense - ${cleaned}` : "Expense - Supplier Bill";
+}
+
+async function syncBillJournalEntry(userId, companyId, bill) {
+  if (!bill) {
+    return;
+  }
+
+  await JournalEntry.deleteMany({
+    userId,
+    companyId,
+    sourceType: "bill",
+    sourceId: bill._id.toString(),
+  });
+
+  if (!shouldCreateBillJournalEntry(bill)) {
+    return;
+  }
+
+  const accountsPayable = await ensureCompanyAccount(userId, companyId, {
+    code: "2000",
+    name: "Accounts Payable",
+    type: "Liability",
+  });
+
+  const expenseLines = [];
+  for (const line of bill.lineItems || []) {
+    const expenseAccount = await ensureCompanyAccount(userId, companyId, {
+      code: "5000",
+      name: deriveBillExpenseAccountName(line.description),
+      type: "Expense",
+    });
+
+    expenseLines.push({
+      accountId: expenseAccount._id,
+      debit: Number(line.amount) || 0,
+      credit: 0,
+    });
+  }
+
+  await JournalEntry.create({
+    userId,
+    companyId,
+    date: bill.billDate,
+    description: `Bill ${bill.billNumber} - ${bill.supplierName}`,
+    sourceType: "bill",
+    sourceId: bill._id.toString(),
+    lines: [
+      ...expenseLines,
+      {
+        accountId: accountsPayable._id,
+        debit: 0,
+        credit: Number(bill.totalAmount) || 0,
+      },
+    ],
+  });
+}
+
+function getMailTransport() {
+  if (!smtpHost || !smtpPort || !smtpUser || !smtpPass) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpPort === 465,
+    auth: {
+      user: smtpUser,
+      pass: smtpPass,
+    },
+  });
+}
+
+async function sendEmail({ to, subject, text, html }) {
+  if (!to) {
+    return false;
+  }
+
+  const transport = getMailTransport();
+  if (!transport) {
+    console.warn("Email skipped because SMTP configuration is incomplete.");
+    return false;
+  }
+
+  await transport.sendMail({
+    from: smtpUser,
+    to,
+    subject,
+    text,
+    html,
+  });
+  return true;
+}
+
+async function sendWelcomeEmail(user) {
+  if (!user?.email) {
+    return;
+  }
+
+  await sendEmail({
+    to: user.email,
+    subject: "Welcome to LedgrAI",
+    text: [
+      `Hello ${user.name || "there"},`,
+      "",
+      "Your LedgrAI account has been created successfully.",
+      `Open the app: ${appBaseUrl}`,
+    ].join("\n"),
+    html: `
+      <p>Hello ${escapeHtml(user.name || "there")},</p>
+      <p>Your LedgrAI account has been created successfully.</p>
+      <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
+    `,
+  }).catch((error) => {
+    console.error("Failed to send welcome email.", error);
+  });
+}
+
+async function sendInvoiceOverdueNotificationEmail({ user, company, invoice }) {
+  if (!user?.email || !invoice) {
+    return false;
+  }
+
+  return sendEmail({
+    to: user.email,
+    subject: `Invoice Overdue Notice — ${invoice.invoiceNumber}`,
+    text: [
+      `Hello ${user.name || "there"},`,
+      "",
+      `Invoice ${invoice.invoiceNumber} is overdue.`,
+      `Client: ${invoice.clientName}`,
+      `Amount: ${formatCurrencyAmount(Number(invoice.totalAmount) || 0, company?.currency || "NGN")}`,
+      `Due Date: ${invoice.dueDate}`,
+      `Open LedgrAI: ${appBaseUrl}`,
+    ].join("\n"),
+    html: `
+      <p>Hello ${escapeHtml(user.name || "there")},</p>
+      <p>Invoice <strong>${escapeHtml(invoice.invoiceNumber)}</strong> is overdue.</p>
+      <ul>
+        <li>Client: ${escapeHtml(invoice.clientName || "Not specified")}</li>
+        <li>Amount: ${escapeHtml(formatCurrencyAmount(Number(invoice.totalAmount) || 0, company?.currency || "NGN"))}</li>
+        <li>Due Date: ${escapeHtml(invoice.dueDate || "")}</li>
+      </ul>
+      <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
+    `,
+  });
+}
+
+async function sendOverdueInvoiceNotifications() {
+  const today = new Date().toISOString().slice(0, 10);
+  const invoices = await Invoice.find({
+    dueDate: { $lt: today },
+    status: { $in: ["Sent", "Overdue"] },
+    overdueNotifiedAt: null,
+  }).lean();
+
+  for (const invoice of invoices) {
+    const [user, company] = await Promise.all([
+      User.findById(invoice.userId).lean(),
+      Company.findById(invoice.companyId).lean(),
+    ]);
+    if (!user || !company) {
+      continue;
+    }
+
+    try {
+      await sendInvoiceOverdueNotificationEmail({ user, company, invoice });
+      await Invoice.updateOne({ _id: invoice._id }, { $set: { overdueNotifiedAt: new Date() } });
+    } catch (error) {
+      console.error("Failed to send overdue invoice email.", error);
+    }
+  }
+}
+
+function formatCurrencyAmount(value, currencyCode = "NGN") {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode || "NGN",
+    }).format(Number(value) || 0);
+  } catch {
+    return `${currencyCode || "NGN"} ${Number(value) || 0}`;
+  }
+}
+
+function computeCompanyFinancialMetrics({ accounts, journalEntries, invoices }) {
+  const accountMap = new Map(
+    (accounts || []).map((account) => [String(account._id), account]),
+  );
+  const today = new Date();
+  const currentMonth = today.getMonth();
+  const currentYear = today.getFullYear();
+
+  const monthlyJournalEntries = (journalEntries || []).filter((entry) => {
+    const entryDate = new Date(`${entry.date}T00:00:00`);
+    return entryDate.getMonth() === currentMonth && entryDate.getFullYear() === currentYear;
+  });
+
+  const currentCashBalance = (accounts || [])
+    .filter((account) => account.type === "Asset" && /(cash|bank|petty cash)/i.test(account.name))
+    .reduce((sum, account) => {
+      const totals = getJournalPostingTotals(journalEntries, String(account._id));
+      return sum + calculateAccountClosingBalance(account.type, Number(account.openingBalance) || 0, totals);
+    }, 0);
+
+  let netIncomeThisMonth = 0;
+  let totalExpensesThisMonth = 0;
+  monthlyJournalEntries.forEach((entry) => {
+    (entry.lines || []).forEach((line) => {
+      const account = accountMap.get(String(line.accountId));
+      if (!account) {
+        return;
+      }
+
+      const debit = Number(line.debit) || 0;
+      const credit = Number(line.credit) || 0;
+      if (account.type === "Revenue") {
+        netIncomeThisMonth += credit - debit;
+      } else if (account.type === "Expense") {
+        const expenseAmount = debit - credit;
+        totalExpensesThisMonth += expenseAmount;
+        netIncomeThisMonth -= expenseAmount;
+      }
+    });
+  });
+
+  const outstandingInvoicesTotal = (invoices || [])
+    .filter((invoice) => {
+      const status = deriveInvoiceStatus(invoice);
+      return status === "Sent" || status === "Overdue";
+    })
+    .reduce((sum, invoice) => sum + (Number(invoice.totalAmount) || 0), 0);
+
+  const overdueInvoicesCount = (invoices || []).filter((invoice) => deriveInvoiceStatus(invoice) === "Overdue").length;
+
+  return {
+    currentCashBalance,
+    netIncomeThisMonth,
+    totalExpensesThisMonth,
+    outstandingInvoicesTotal,
+    overdueInvoicesCount,
+  };
+}
+
+function getJournalPostingTotals(journalEntries, accountId) {
+  return (journalEntries || [])
+    .flatMap((entry) => entry.lines || [])
+    .filter((line) => String(line.accountId) === String(accountId))
+    .reduce(
+      (sum, line) => ({
+        debits: sum.debits + (Number(line.debit) || 0),
+        credits: sum.credits + (Number(line.credit) || 0),
+      }),
+      { debits: 0, credits: 0 },
+    );
+}
+
+function calculateAccountClosingBalance(accountType, openingBalance, postingTotals) {
+  if (accountType === "Asset" || accountType === "Expense") {
+    return openingBalance + postingTotals.debits - postingTotals.credits;
+  }
+
+  return openingBalance + postingTotals.credits - postingTotals.debits;
+}
+
+function deriveInvoiceStatus(invoice) {
+  if (!invoice) {
+    return "Draft";
+  }
+
+  if (invoice.status === "Paid") {
+    return "Paid";
+  }
+
+  if (invoice.status === "Draft") {
+    return "Draft";
+  }
+
+  return isInvoiceOverdue(invoice.dueDate) ? "Overdue" : "Sent";
+}
+
+async function requestWeeklyInsight(summaryPayload) {
+  if (!groqApiKey) {
+    return "Groq insight is unavailable because GROQ_API_KEY is not configured.";
+  }
+
+  const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${groqApiKey}`,
+    },
+    body: JSON.stringify({
+      model: groqModel,
+      temperature: 0.3,
+      max_tokens: 120,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a finance assistant. Return one concise practical insight based only on the supplied weekly financial summary.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify(summaryPayload),
+        },
+      ],
+    }),
+  });
+
+  const data = await groqResponse.json();
+  if (!groqResponse.ok) {
+    throw new Error(data?.error?.message || data?.error || "Groq request failed.");
+  }
+
+  return data?.choices?.[0]?.message?.content?.trim() || "No AI insight available this week.";
+}
+
+async function sendWeeklyFinancialSummaries() {
+  const users = await User.find({}).lean();
+
+  for (const user of users) {
+    const companies = await Company.find({ userId: user._id }).lean();
+    for (const company of companies) {
+      const [accounts, journalEntries, invoices] = await Promise.all([
+        Account.find({ userId: user._id, companyId: company._id }).lean(),
+        JournalEntry.find({ userId: user._id, companyId: company._id }).lean(),
+        Invoice.find({ userId: user._id, companyId: company._id }).lean(),
+      ]);
+
+      const nonSystemEntries = journalEntries.filter((entry) => entry.sourceType !== "system");
+      if (!nonSystemEntries.length) {
+        continue;
+      }
+
+      const metrics = computeCompanyFinancialMetrics({ accounts, journalEntries, invoices });
+      const insightPayload = {
+        companyName: company.name || "Unnamed Company",
+        currency: company.currency || "NGN",
+        ...metrics,
+      };
+
+      let insight = "No AI insight available this week.";
+      try {
+        insight = await requestWeeklyInsight(insightPayload);
+      } catch (error) {
+        console.error("Failed to generate weekly Groq insight.", error);
+      }
+
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: `Your LedgrAI Weekly Summary — ${company.name || "Company"}`,
+          text: [
+            `Hello ${user.name || "there"},`,
+            "",
+            `Company: ${company.name || "Unnamed Company"}`,
+            `Current Cash Balance: ${formatCurrencyAmount(metrics.currentCashBalance, company.currency)}`,
+            `Net Income This Month: ${formatCurrencyAmount(metrics.netIncomeThisMonth, company.currency)}`,
+            `Total Expenses This Month: ${formatCurrencyAmount(metrics.totalExpensesThisMonth, company.currency)}`,
+            `Outstanding Invoices Total: ${formatCurrencyAmount(metrics.outstandingInvoicesTotal, company.currency)}`,
+            `Overdue Invoices Count: ${metrics.overdueInvoicesCount}`,
+            `AI Insight: ${insight}`,
+            "",
+            `Open LedgrAI: ${appBaseUrl}`,
+          ].join("\n"),
+          html: `
+            <p>Hello ${escapeHtml(user.name || "there")},</p>
+            <p><strong>${escapeHtml(company.name || "Unnamed Company")}</strong></p>
+            <table>
+              <tr><td>Current Cash Balance</td><td>${escapeHtml(formatCurrencyAmount(metrics.currentCashBalance, company.currency))}</td></tr>
+              <tr><td>Net Income This Month</td><td>${escapeHtml(formatCurrencyAmount(metrics.netIncomeThisMonth, company.currency))}</td></tr>
+              <tr><td>Total Expenses This Month</td><td>${escapeHtml(formatCurrencyAmount(metrics.totalExpensesThisMonth, company.currency))}</td></tr>
+              <tr><td>Outstanding Invoices Total</td><td>${escapeHtml(formatCurrencyAmount(metrics.outstandingInvoicesTotal, company.currency))}</td></tr>
+              <tr><td>Overdue Invoices Count</td><td>${escapeHtml(String(metrics.overdueInvoicesCount))}</td></tr>
+            </table>
+            <p><strong>AI Insight:</strong> ${escapeHtml(insight)}</p>
+            <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
+          `,
+        });
+      } catch (error) {
+        console.error("Failed to send weekly financial summary email.", error);
+      }
+    }
+  }
+}
+
+function initializeSchedulers() {
+  if (schedulerInitialized) {
+    return;
+  }
+
+  cron.schedule(
+    "0 8 * * 1",
+    async () => {
+      await sendWeeklyFinancialSummaries().catch((error) => {
+        console.error("Weekly summary job failed.", error);
+      });
+    },
+    { timezone: schedulerTimezone },
+  );
+
+  cron.schedule(
+    "0 8 * * *",
+    async () => {
+      await sendOverdueInvoiceNotifications().catch((error) => {
+        console.error("Overdue invoice notification job failed.", error);
+      });
+    },
+    { timezone: schedulerTimezone },
+  );
+
+  schedulerInitialized = true;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function sanitizeRequestBody(req, res, next) {
