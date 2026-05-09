@@ -1,3 +1,4 @@
+require('dotenv').config();
 const path = require("path");
 const express = require("express");
 const mongoose = require("mongoose");
@@ -42,10 +43,10 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "https://cdnjs.cloudflare.com"],
-        styleSrc: ["'self'"],
+        styleSrc: ["'self'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:"],
         connectSrc: ["'self'", "https://countriesnow.space"],
-        fontSrc: ["'self'", "data:"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
@@ -712,13 +713,55 @@ app.post("/api/assistant", async (req, res) => {
     const payload = req.body || {};
     const conversation = Array.isArray(payload.messages) ? payload.messages : [];
     const financialData = payload.financialData || {};
+    const companyProfile = financialData.companyProfile || financialData.companySetup || {};
+    const companyName = companyProfile.companyName || financialData.activeCompany?.name || "the business";
+    const industry = companyProfile.industry || "unspecified industry";
+    const businessType = companyProfile.businessType || "unspecified business type";
+    const country = companyProfile.country || "unspecified country";
+    const currency = companyProfile.currency || "unspecified currency";
+    const financialYearStart = companyProfile.financialYearStart || "not specified";
+    const monthsOfData = Number(financialData.dataAvailability?.monthsOfData || 0);
+    const accountTerms = Array.isArray(financialData.chartOfAccountsTerminology?.allAccountNames)
+      ? financialData.chartOfAccountsTerminology.allAccountNames.join(", ")
+      : "No chart of accounts available.";
+    const reliabilityNote =
+      financialData.dataAvailability?.trendReliabilityNote ||
+      (monthsOfData < 3
+        ? `Only ${monthsOfData} month${monthsOfData === 1 ? "" : "s"} of data available — trend analysis requires at least 3 months for reliable patterns.`
+        : `A total of ${monthsOfData} months of accounting data are available for trend analysis.`);
 
     const systemPrompt = [
-      "You are the LedgrAI finance assistant embedded in an accounting web app.",
-      "Answer only from the supplied financial data context.",
-      "If data is incomplete, say what is missing and make that limitation explicit.",
-      "Keep answers concise and practical for a business user.",
-      "Use simple accounting language and cite relevant figures from the provided context.",
+      "You are the LedgrAI AI Assistant acting as a senior financial advisor inside an accounting workspace.",
+      "Answer only from the supplied financial data context. Do not invent facts, confidence scores, or unsupported explanations.",
+      "Write in professional business language appropriate to the company's industry and operating context.",
+      "",
+      "Company context:",
+      `- Company name: ${companyName}`,
+      `- Industry: ${industry}`,
+      `- Business type: ${businessType}`,
+      `- Country: ${country}`,
+      `- Reporting currency: ${currency}`,
+      `- Financial year start date: ${financialYearStart}`,
+      `- Months of accounting data available: ${monthsOfData}`,
+      `- Reliability note: ${reliabilityNote}`,
+      `- Exact chart of accounts terminology to use when relevant: ${accountTerms}`,
+      "",
+      "Response rules:",
+      "- Always compare current month versus previous month, and current quarter versus previous quarter, using the supplied comparison data.",
+      "- State whether each change is an improvement, decline, or broadly flat, and quantify percentage changes whenever a prior-period baseline exists.",
+      "- If the business has insufficient history for a reliable conclusion, say so explicitly and plainly. Example: 'Only 2 months of data available — trend analysis requires at least 3 months for reliable patterns.'",
+      "- Never present uncertain analysis as definitive.",
+      "- Use the exact account names from the chart of accounts instead of generic labels whenever possible.",
+      "- Before calling something unusual or anomalous, check whether the same pattern existed in the previous period and say so if it did, for example: 'This also occurred last month.'",
+      "- If the user asks about anomalies, interpret 'unusual' conservatively and anchor the statement to prior-period comparisons in the provided data.",
+      "- Ground every conclusion in the provided figures.",
+      "",
+      "Required response format:",
+      "1. Cash Position",
+      "2. Largest Expense Category",
+      "3. Revenue Trend",
+      "4. Recommendation",
+      "Each section must contain a clear observation. The Recommendation section must contain one specific actionable recommendation.",
       "",
       "Financial data context:",
       JSON.stringify(financialData, null, 2),
