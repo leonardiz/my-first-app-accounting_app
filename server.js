@@ -394,6 +394,7 @@ app.post("/api/invoices", async (req, res) => {
     });
 
     await syncInvoiceJournalEntry(req.user._id, activeCompany._id, invoice);
+    await notifyInvoiceIfOverdue({ user: req.user, company: activeCompany, previousInvoice: null, invoice });
     return res.status(201).json({ invoice: serializeInvoice(invoice) });
   } catch (error) {
     if (error?.code === 11000) {
@@ -431,6 +432,12 @@ app.put("/api/invoices/:id", async (req, res) => {
     );
 
     await syncInvoiceJournalEntry(req.user._id, activeCompany._id, invoice);
+    await notifyInvoiceIfOverdue({
+      user: req.user,
+      company: activeCompany,
+      previousInvoice: existingInvoice,
+      invoice,
+    });
     return res.json({ invoice: serializeInvoice(invoice) });
   } catch (error) {
     if (error?.code === 11000) {
@@ -501,9 +508,11 @@ app.post("/api/bills", async (req, res) => {
       ...payload,
       billNumber,
       approvalStatus,
+      overdueNotifiedAt: null,
     });
 
     await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    await notifyBillIfOverdue({ user: req.user, company: activeCompany, previousBill: null, bill });
     return res.status(201).json({ bill: serializeBill(bill) });
   } catch (error) {
     if (error?.code === 11000) {
@@ -540,12 +549,21 @@ app.put("/api/bills/:id", async (req, res) => {
           ...payload,
           billNumber: existingBill.billNumber,
           approvalStatus,
+          overdueNotifiedAt: shouldResetBillOverdueNotification(payload)
+            ? null
+            : existingBill.overdueNotifiedAt,
         },
       },
       { new: true, runValidators: true },
     );
 
     await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    await notifyBillIfOverdue({
+      user: req.user,
+      company: activeCompany,
+      previousBill: existingBill,
+      bill,
+    });
     return res.json({ bill: serializeBill(bill) });
   } catch (error) {
     if (error?.code === 11000) {
@@ -576,7 +594,7 @@ app.post("/api/bills/:id/mark-paid", async (req, res) => {
 
     const bill = await Bill.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id, companyId: activeCompany._id },
-      { $set: { status: "Paid", approvalStatus } },
+      { $set: { status: "Paid", approvalStatus, overdueNotifiedAt: null } },
       { new: true },
     );
 
@@ -820,6 +838,9 @@ async function start() {
 
   await mongoose.connect(mongoUri);
   await mongoose.connection.collection("companies").dropIndex("userId_1").catch(() => {});
+  await repairExistingTaxJournalEntries().catch((error) => {
+    console.error("Failed to repair existing tax journal entries.", error);
+  });
   initializeSchedulers();
   app.listen(port, () => {
     console.log(`LedgrAI running at http://localhost:${port}`);
@@ -1325,6 +1346,26 @@ function isBillOverdue(dueDate) {
   return dueDate < today;
 }
 
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function calculateTaxAmount(subtotal, totalAmount, taxPercentage) {
+  const normalizedSubtotal = Number(subtotal) || 0;
+  const normalizedTotal = Number(totalAmount) || 0;
+  const normalizedTaxPercentage = Number(taxPercentage) || 0;
+  if (normalizedTaxPercentage <= 0) {
+    return 0;
+  }
+
+  const difference = roundMoney(normalizedTotal - normalizedSubtotal);
+  if (difference > 0) {
+    return difference;
+  }
+
+  return roundMoney(normalizedSubtotal * (normalizedTaxPercentage / 100));
+}
+
 async function ensureCompanyAccount(userId, companyId, config) {
   const existingByName = await Account.findOne({
     userId,
@@ -1375,7 +1416,8 @@ async function syncInvoiceJournalEntry(userId, companyId, invoice) {
     return;
   }
 
-  const [accountsReceivable, serviceRevenue] = await Promise.all([
+  const taxAmount = calculateTaxAmount(invoice.subtotal, invoice.totalAmount, invoice.taxPercentage);
+  const [accountsReceivable, serviceRevenue, vatOutput] = await Promise.all([
     ensureCompanyAccount(userId, companyId, {
       code: "1100",
       name: "Accounts Receivable",
@@ -1386,7 +1428,35 @@ async function syncInvoiceJournalEntry(userId, companyId, invoice) {
       name: "Service Revenue",
       type: "Revenue",
     }),
+    taxAmount > 0
+      ? ensureCompanyAccount(userId, companyId, {
+          code: "2200",
+          name: "VAT Output",
+          type: "Liability",
+        })
+      : Promise.resolve(null),
   ]);
+
+  const lines = [
+    {
+      accountId: accountsReceivable._id,
+      debit: Number(invoice.totalAmount) || 0,
+      credit: 0,
+    },
+    {
+      accountId: serviceRevenue._id,
+      debit: 0,
+      credit: taxAmount > 0 ? Number(invoice.subtotal) || 0 : Number(invoice.totalAmount) || 0,
+    },
+  ];
+
+  if (taxAmount > 0 && vatOutput) {
+    lines.push({
+      accountId: vatOutput._id,
+      debit: 0,
+      credit: taxAmount,
+    });
+  }
 
   await JournalEntry.create({
     userId,
@@ -1395,18 +1465,7 @@ async function syncInvoiceJournalEntry(userId, companyId, invoice) {
     description: `Invoice ${invoice.invoiceNumber} - ${invoice.clientName}`,
     sourceType: "invoice",
     sourceId: invoice._id.toString(),
-    lines: [
-      {
-        accountId: accountsReceivable._id,
-        debit: Number(invoice.totalAmount) || 0,
-        credit: 0,
-      },
-      {
-        accountId: serviceRevenue._id,
-        debit: 0,
-        credit: Number(invoice.totalAmount) || 0,
-      },
-    ],
+    lines,
   });
 }
 
@@ -1450,6 +1509,15 @@ function shouldCreateBillJournalEntry(bill) {
   );
 }
 
+function shouldResetBillOverdueNotification(billLike) {
+  const normalizedStatus = String(billLike?.status || "").trim();
+  if (normalizedStatus === "Draft" || normalizedStatus === "Paid") {
+    return true;
+  }
+
+  return !isBillOverdue(billLike?.dueDate || "");
+}
+
 function deriveBillExpenseAccountName(description) {
   const cleaned = sanitizeText(description || "", 70);
   return cleaned ? `Expense - ${cleaned}` : "Expense - Supplier Bill";
@@ -1471,26 +1539,50 @@ async function syncBillJournalEntry(userId, companyId, bill) {
     return;
   }
 
-  const accountsPayable = await ensureCompanyAccount(userId, companyId, {
-    code: "2000",
-    name: "Accounts Payable",
-    type: "Liability",
-  });
-
-  const expenseLines = [];
-  for (const line of bill.lineItems || []) {
-    const expenseAccount = await ensureCompanyAccount(userId, companyId, {
+  const taxAmount = calculateTaxAmount(bill.subtotal, bill.totalAmount, bill.taxPercentage);
+  const primaryDescription =
+    (bill.lineItems || []).map((line) => line.description).find(Boolean) || bill.supplierName || "Supplier Bill";
+  const [accountsPayable, expenseAccount, vatInputAccount] = await Promise.all([
+    ensureCompanyAccount(userId, companyId, {
+      code: "2000",
+      name: "Accounts Payable",
+      type: "Liability",
+    }),
+    ensureCompanyAccount(userId, companyId, {
       code: "5000",
-      name: deriveBillExpenseAccountName(line.description),
+      name: deriveBillExpenseAccountName(primaryDescription),
       type: "Expense",
-    });
+    }),
+    taxAmount > 0
+      ? ensureCompanyAccount(userId, companyId, {
+          code: "2100",
+          name: "VAT Input",
+          type: "Asset",
+        })
+      : Promise.resolve(null),
+  ]);
 
-    expenseLines.push({
+  const lines = [
+    {
       accountId: expenseAccount._id,
-      debit: Number(line.amount) || 0,
+      debit: Number(bill.subtotal) || 0,
+      credit: 0,
+    },
+  ];
+
+  if (taxAmount > 0 && vatInputAccount) {
+    lines.push({
+      accountId: vatInputAccount._id,
+      debit: taxAmount,
       credit: 0,
     });
   }
+
+  lines.push({
+    accountId: accountsPayable._id,
+    debit: 0,
+    credit: Number(bill.totalAmount) || 0,
+  });
 
   await JournalEntry.create({
     userId,
@@ -1499,14 +1591,7 @@ async function syncBillJournalEntry(userId, companyId, bill) {
     description: `Bill ${bill.billNumber} - ${bill.supplierName}`,
     sourceType: "bill",
     sourceId: bill._id.toString(),
-    lines: [
-      ...expenseLines,
-      {
-        accountId: accountsPayable._id,
-        debit: 0,
-        credit: Number(bill.totalAmount) || 0,
-      },
-    ],
+    lines,
   });
 }
 
@@ -1528,15 +1613,17 @@ function getMailTransport() {
 
 async function sendEmail({ to, subject, text, html }) {
   if (!to) {
+    console.warn(`Email skipped because recipient is missing. Subject: ${subject}`);
     return false;
   }
 
   const transport = getMailTransport();
   if (!transport) {
-    console.warn("Email skipped because SMTP configuration is incomplete.");
+    console.warn(`Email skipped because SMTP configuration is incomplete. Subject: ${subject}; to: ${to}`);
     return false;
   }
 
+  console.log(`Sending email to ${to}: ${subject}`);
   await transport.sendMail({
     from: smtpUser,
     to,
@@ -1544,11 +1631,13 @@ async function sendEmail({ to, subject, text, html }) {
     text,
     html,
   });
+  console.log(`Email sent to ${to}: ${subject}`);
   return true;
 }
 
 async function sendWelcomeEmail(user) {
   if (!user?.email) {
+    console.warn("Welcome email skipped because user email is missing.");
     return;
   }
 
@@ -1567,25 +1656,28 @@ async function sendWelcomeEmail(user) {
       <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
     `,
   }).catch((error) => {
-    console.error("Failed to send welcome email.", error);
+    console.error(`Failed to send welcome email to ${user.email}.`, error);
   });
 }
 
 async function sendInvoiceOverdueNotificationEmail({ user, company, invoice }) {
-  if (!user?.email || !invoice) {
+  const recipient = company?.email || user?.email || "";
+  if (!recipient || !invoice) {
     return false;
   }
 
+  const daysOverdue = getDaysOverdue(invoice.dueDate);
+
   return sendEmail({
-    to: user.email,
+    to: recipient,
     subject: `Invoice Overdue Notice — ${invoice.invoiceNumber}`,
     text: [
       `Hello ${user.name || "there"},`,
       "",
       `Invoice ${invoice.invoiceNumber} is overdue.`,
       `Client: ${invoice.clientName}`,
-      `Amount: ${formatCurrencyAmount(Number(invoice.totalAmount) || 0, company?.currency || "NGN")}`,
-      `Due Date: ${invoice.dueDate}`,
+      `Amount Due: ${formatCurrencyAmount(Number(invoice.totalAmount) || 0, company?.currency || "NGN")}`,
+      `Days Overdue: ${daysOverdue}`,
       `Open LedgrAI: ${appBaseUrl}`,
     ].join("\n"),
     html: `
@@ -1593,8 +1685,8 @@ async function sendInvoiceOverdueNotificationEmail({ user, company, invoice }) {
       <p>Invoice <strong>${escapeHtml(invoice.invoiceNumber)}</strong> is overdue.</p>
       <ul>
         <li>Client: ${escapeHtml(invoice.clientName || "Not specified")}</li>
-        <li>Amount: ${escapeHtml(formatCurrencyAmount(Number(invoice.totalAmount) || 0, company?.currency || "NGN"))}</li>
-        <li>Due Date: ${escapeHtml(invoice.dueDate || "")}</li>
+        <li>Amount Due: ${escapeHtml(formatCurrencyAmount(Number(invoice.totalAmount) || 0, company?.currency || "NGN"))}</li>
+        <li>Days Overdue: ${escapeHtml(String(daysOverdue))}</li>
       </ul>
       <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
     `,
@@ -1602,6 +1694,7 @@ async function sendInvoiceOverdueNotificationEmail({ user, company, invoice }) {
 }
 
 async function sendOverdueInvoiceNotifications() {
+  console.log("Running overdue invoice notification job.");
   const today = new Date().toISOString().slice(0, 10);
   const invoices = await Invoice.find({
     dueDate: { $lt: today },
@@ -1619,10 +1712,72 @@ async function sendOverdueInvoiceNotifications() {
     }
 
     try {
+      console.log(`Sending overdue invoice email for ${invoice.invoiceNumber}.`);
       await sendInvoiceOverdueNotificationEmail({ user, company, invoice });
       await Invoice.updateOne({ _id: invoice._id }, { $set: { overdueNotifiedAt: new Date() } });
     } catch (error) {
       console.error("Failed to send overdue invoice email.", error);
+    }
+  }
+}
+
+async function sendBillOverdueNotificationEmail({ user, company, bill }) {
+  const recipient = company?.email || user?.email || "";
+  if (!recipient || !bill) {
+    return false;
+  }
+
+  const daysOverdue = getDaysOverdue(bill.dueDate);
+  return sendEmail({
+    to: recipient,
+    subject: `Bill Overdue Notice - ${bill.billNumber}`,
+    text: [
+      `Hello ${user.name || "there"},`,
+      "",
+      `Bill ${bill.billNumber} is overdue.`,
+      `Supplier: ${bill.supplierName}`,
+      `Amount Due: ${formatCurrencyAmount(Number(bill.totalAmount) || 0, company?.currency || "NGN")}`,
+      `Days Overdue: ${daysOverdue}`,
+      `Open LedgrAI: ${appBaseUrl}`,
+    ].join("\n"),
+    html: `
+      <p>Hello ${escapeHtml(user.name || "there")},</p>
+      <p>Bill <strong>${escapeHtml(bill.billNumber)}</strong> is overdue.</p>
+      <ul>
+        <li>Supplier: ${escapeHtml(bill.supplierName || "Not specified")}</li>
+        <li>Amount Due: ${escapeHtml(formatCurrencyAmount(Number(bill.totalAmount) || 0, company?.currency || "NGN"))}</li>
+        <li>Days Overdue: ${escapeHtml(String(daysOverdue))}</li>
+      </ul>
+      <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
+    `,
+  });
+}
+
+async function sendOverdueBillNotifications() {
+  console.log("Running overdue bill notification job.");
+  const today = new Date().toISOString().slice(0, 10);
+  const bills = await Bill.find({
+    dueDate: { $lt: today },
+    status: { $in: ["Received", "Overdue"] },
+    approvalStatus: "Approved",
+    overdueNotifiedAt: null,
+  }).lean();
+
+  for (const bill of bills) {
+    const [user, company] = await Promise.all([
+      User.findById(bill.userId).lean(),
+      Company.findById(bill.companyId).lean(),
+    ]);
+    if (!user || !company) {
+      continue;
+    }
+
+    try {
+      console.log(`Sending overdue bill email for ${bill.billNumber}.`);
+      await sendBillOverdueNotificationEmail({ user, company, bill });
+      await Bill.updateOne({ _id: bill._id }, { $set: { overdueNotifiedAt: new Date() } });
+    } catch (error) {
+      console.error("Failed to send overdue bill email.", error);
     }
   }
 }
@@ -1732,6 +1887,93 @@ function deriveInvoiceStatus(invoice) {
   }
 
   return isInvoiceOverdue(invoice.dueDate) ? "Overdue" : "Sent";
+}
+
+function deriveBillStatus(bill) {
+  if (!bill) {
+    return "Draft";
+  }
+
+  if (bill.status === "Paid") {
+    return "Paid";
+  }
+
+  if (bill.status === "Draft") {
+    return "Draft";
+  }
+
+  return isBillOverdue(bill.dueDate) ? "Overdue" : "Received";
+}
+
+function getDaysOverdue(dueDate) {
+  if (!dueDate) {
+    return 0;
+  }
+
+  const due = new Date(`${dueDate}T00:00:00`);
+  const today = new Date();
+  due.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const diffMs = today.getTime() - due.getTime();
+  if (diffMs <= 0) {
+    return 0;
+  }
+
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+async function notifyInvoiceIfOverdue({ user, company, previousInvoice, invoice }) {
+  const previousStatus = deriveInvoiceStatus(previousInvoice);
+  const nextStatus = deriveInvoiceStatus(invoice);
+  if (nextStatus !== "Overdue" || previousStatus === "Overdue") {
+    return;
+  }
+
+  try {
+    console.log(`Sending immediate overdue invoice email for ${invoice.invoiceNumber}.`);
+    await sendInvoiceOverdueNotificationEmail({ user, company, invoice });
+    await Invoice.updateOne({ _id: invoice._id }, { $set: { overdueNotifiedAt: new Date() } });
+  } catch (error) {
+    console.error("Failed to send immediate overdue invoice email.", error);
+  }
+}
+
+async function notifyBillIfOverdue({ user, company, previousBill, bill }) {
+  const previousStatus = deriveBillStatus(previousBill);
+  const nextStatus = deriveBillStatus(bill);
+  if (nextStatus !== "Overdue" || previousStatus === "Overdue") {
+    return;
+  }
+
+  if (bill.approvalStatus !== "Approved") {
+    return;
+  }
+
+  try {
+    console.log(`Sending immediate overdue bill email for ${bill.billNumber}.`);
+    await sendBillOverdueNotificationEmail({ user, company, bill });
+    await Bill.updateOne({ _id: bill._id }, { $set: { overdueNotifiedAt: new Date() } });
+  } catch (error) {
+    console.error("Failed to send immediate overdue bill email.", error);
+  }
+}
+
+async function repairExistingTaxJournalEntries() {
+  console.log("Repairing tax journal entries for posted invoices and bills.");
+  const [invoices, bills] = await Promise.all([
+    Invoice.find({ taxPercentage: { $gt: 0 } }),
+    Bill.find({ taxPercentage: { $gt: 0 } }),
+  ]);
+
+  for (const invoice of invoices) {
+    await syncInvoiceJournalEntry(invoice.userId, invoice.companyId, invoice);
+  }
+
+  for (const bill of bills) {
+    await syncBillJournalEntry(bill.userId, bill.companyId, bill);
+  }
+
+  console.log(`Repaired ${invoices.length} invoice journal entries and ${bills.length} bill journal entries with tax.`);
 }
 
 async function requestWeeklyInsight(summaryPayload) {
@@ -1858,8 +2100,12 @@ function initializeSchedulers() {
   cron.schedule(
     "0 8 * * *",
     async () => {
+      console.log("Daily overdue notification scheduler fired.");
       await sendOverdueInvoiceNotifications().catch((error) => {
         console.error("Overdue invoice notification job failed.", error);
+      });
+      await sendOverdueBillNotifications().catch((error) => {
+        console.error("Overdue bill notification job failed.", error);
       });
     },
     { timezone: schedulerTimezone },

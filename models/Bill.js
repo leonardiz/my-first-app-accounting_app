@@ -88,6 +88,10 @@ const billSchema = new mongoose.Schema(
       enum: ["Not Required", "Pending Approval", "Approved", "Rejected"],
       default: "Not Required",
     },
+    overdueNotifiedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
