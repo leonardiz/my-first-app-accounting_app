@@ -182,6 +182,44 @@ app.get("/auth/me", async (req, res) => {
 
 app.use("/api", requireAuth);
 
+app.get("/api/test-email", async (req, res) => {
+  try {
+    if (!req.user?.email) {
+      return res.status(400).json({ error: "Authenticated user does not have an email address." });
+    }
+
+    const requestedAt = new Date().toISOString();
+    const sent = await sendEmail({
+      to: req.user.email,
+      subject: "LedgrAI SMTP Test Email",
+      text: [
+        `Hello ${req.user.name || "there"},`,
+        "",
+        "This is a manual SMTP test email from LedgrAI.",
+        `Requested at: ${requestedAt}`,
+        `Open LedgrAI: ${appBaseUrl}`,
+      ].join("\n"),
+      html: `
+        <p>Hello ${escapeHtml(req.user.name || "there")},</p>
+        <p>This is a manual SMTP test email from LedgrAI.</p>
+        <p>Requested at: ${escapeHtml(requestedAt)}</p>
+        <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
+      `,
+    });
+
+    if (!sent) {
+      return res.status(503).json({ error: "Test email could not be sent." });
+    }
+
+    return res.json({
+      success: true,
+      message: `Test email sent to ${req.user.email}.`,
+    });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to send test email.");
+  }
+});
+
 app.get("/api/bootstrap", async (req, res) => {
   try {
     const { companies, activeCompany } = await resolveUserCompanies(req.user);
@@ -1613,26 +1651,31 @@ function getMailTransport() {
 
 async function sendEmail({ to, subject, text, html }) {
   if (!to) {
-    console.warn(`Email skipped because recipient is missing. Subject: ${subject}`);
+    console.log("Email failed: recipient is missing");
     return false;
   }
 
   const transport = getMailTransport();
   if (!transport) {
-    console.warn(`Email skipped because SMTP configuration is incomplete. Subject: ${subject}; to: ${to}`);
+    console.log("Email failed: SMTP configuration is incomplete");
     return false;
   }
 
   console.log(`Sending email to ${to}: ${subject}`);
-  await transport.sendMail({
-    from: smtpUser,
-    to,
-    subject,
-    text,
-    html,
-  });
-  console.log(`Email sent to ${to}: ${subject}`);
-  return true;
+  try {
+    await transport.sendMail({
+      from: smtpUser,
+      to,
+      subject,
+      text,
+      html,
+    });
+    console.log(`Email sent to ${to}`);
+    return true;
+  } catch (error) {
+    console.log(`Email failed: ${error.message}`);
+    throw error;
+  }
 }
 
 async function sendWelcomeEmail(user) {
@@ -1711,10 +1754,16 @@ async function sendOverdueInvoiceNotifications() {
       continue;
     }
 
+    console.log(
+      `Checking invoice ${invoice.invoiceNumber} due ${invoice.dueDate} for company ${company.name || "Unnamed Company"}`,
+    );
+
     try {
       console.log(`Sending overdue invoice email for ${invoice.invoiceNumber}.`);
-      await sendInvoiceOverdueNotificationEmail({ user, company, invoice });
-      await Invoice.updateOne({ _id: invoice._id }, { $set: { overdueNotifiedAt: new Date() } });
+      const sent = await sendInvoiceOverdueNotificationEmail({ user, company, invoice });
+      if (sent) {
+        await Invoice.updateOne({ _id: invoice._id }, { $set: { overdueNotifiedAt: new Date() } });
+      }
     } catch (error) {
       console.error("Failed to send overdue invoice email.", error);
     }
@@ -1772,10 +1821,16 @@ async function sendOverdueBillNotifications() {
       continue;
     }
 
+    console.log(
+      `Checking bill ${bill.billNumber} due ${bill.dueDate} for company ${company.name || "Unnamed Company"}`,
+    );
+
     try {
       console.log(`Sending overdue bill email for ${bill.billNumber}.`);
-      await sendBillOverdueNotificationEmail({ user, company, bill });
-      await Bill.updateOne({ _id: bill._id }, { $set: { overdueNotifiedAt: new Date() } });
+      const sent = await sendBillOverdueNotificationEmail({ user, company, bill });
+      if (sent) {
+        await Bill.updateOne({ _id: bill._id }, { $set: { overdueNotifiedAt: new Date() } });
+      }
     } catch (error) {
       console.error("Failed to send overdue bill email.", error);
     }
@@ -1931,8 +1986,10 @@ async function notifyInvoiceIfOverdue({ user, company, previousInvoice, invoice 
 
   try {
     console.log(`Sending immediate overdue invoice email for ${invoice.invoiceNumber}.`);
-    await sendInvoiceOverdueNotificationEmail({ user, company, invoice });
-    await Invoice.updateOne({ _id: invoice._id }, { $set: { overdueNotifiedAt: new Date() } });
+    const sent = await sendInvoiceOverdueNotificationEmail({ user, company, invoice });
+    if (sent) {
+      await Invoice.updateOne({ _id: invoice._id }, { $set: { overdueNotifiedAt: new Date() } });
+    }
   } catch (error) {
     console.error("Failed to send immediate overdue invoice email.", error);
   }
@@ -1951,8 +2008,10 @@ async function notifyBillIfOverdue({ user, company, previousBill, bill }) {
 
   try {
     console.log(`Sending immediate overdue bill email for ${bill.billNumber}.`);
-    await sendBillOverdueNotificationEmail({ user, company, bill });
-    await Bill.updateOne({ _id: bill._id }, { $set: { overdueNotifiedAt: new Date() } });
+    const sent = await sendBillOverdueNotificationEmail({ user, company, bill });
+    if (sent) {
+      await Bill.updateOne({ _id: bill._id }, { $set: { overdueNotifiedAt: new Date() } });
+    }
   } catch (error) {
     console.error("Failed to send immediate overdue bill email.", error);
   }
@@ -2100,7 +2159,7 @@ function initializeSchedulers() {
   cron.schedule(
     "0 8 * * *",
     async () => {
-      console.log("Daily overdue notification scheduler fired.");
+      console.log(`Overdue check cron job fired at ${new Date().toISOString()}`);
       await sendOverdueInvoiceNotifications().catch((error) => {
         console.error("Overdue invoice notification job failed.", error);
       });

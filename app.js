@@ -1652,6 +1652,14 @@ function renderDashboard() {
   elements.dashboardOverdueInvoices.textContent = String(overdueInvoices);
   elements.dashboardOutstandingBills.textContent = currencyFormatter.format(outstandingBills);
   elements.dashboardOverdueBills.textContent = String(overdueBills);
+  setDashboardCardTone(elements.dashboardCashBalance, cashFlow.closingCash < 0 ? "negative" : "positive");
+  setDashboardCardTone(elements.dashboardNetIncome, monthlyNetIncome < 0 ? "negative" : "positive");
+  setDashboardCardTone(elements.dashboardTotalExpenses, "negative");
+  setDashboardCardTone(elements.dashboardAccountsPayable, "negative");
+  setDashboardCardTone(elements.dashboardOutstandingInvoices, "positive");
+  setDashboardCardTone(elements.dashboardOverdueInvoices, "negative");
+  setDashboardCardTone(elements.dashboardOutstandingBills, "negative");
+  setDashboardCardTone(elements.dashboardOverdueBills, "negative");
   safeSetInnerHTML(elements.dashboardApprovalsBody, "");
   if (pendingApprovalBills.length) {
     elements.dashboardApprovalsWrapper.classList.remove("hidden");
@@ -5071,12 +5079,9 @@ function renderCashFlowStatement() {
     elements.cashFlowSummaryBody.appendChild(row);
   });
 
-  elements.cashFlowStatus.textContent =
-    report.balanceCheck < 0.005
-      ? "Cash flow check confirmed: Opening cash plus net movement equals closing cash."
-      : "Cash flow check warning: Opening cash plus net movement does not match closing cash.";
-  elements.cashFlowStatus.classList.toggle("is-balanced", report.balanceCheck < 0.005);
-  elements.cashFlowStatus.classList.toggle("is-unbalanced", report.balanceCheck >= 0.005);
+  elements.cashFlowStatus.textContent = "";
+  elements.cashFlowStatus.classList.add("hidden");
+  elements.cashFlowStatus.classList.remove("is-balanced", "is-unbalanced");
 }
 
 function renderAssistant() {
@@ -6049,6 +6054,22 @@ function buildWorkingCapitalAdjustments(accountMovements) {
       return;
     }
 
+    if (account.type === "Asset" && isVatInputAccount(account)) {
+      items.push({
+        label: "VAT Input",
+        amount: -movement,
+      });
+      return;
+    }
+
+    if (account.type === "Liability" && isVatOutputAccount(account)) {
+      items.push({
+        label: "VAT Output",
+        amount: movement,
+      });
+      return;
+    }
+
     if (account.type === "Asset" && isWorkingCapitalAsset(account)) {
       items.push({
         label: `Change in ${account.name}`,
@@ -6162,6 +6183,14 @@ function isOpeningBalanceEquityAccount(account) {
 
 function isCashAccount(account) {
   return account.type === "Asset" && /(cash|bank|petty cash)/i.test(account.name);
+}
+
+function isVatInputAccount(account) {
+  return account.type === "Asset" && (account.code === "2100" || /vat input/i.test(account.name));
+}
+
+function isVatOutputAccount(account) {
+  return account.type === "Liability" && (account.code === "2200" || /vat output/i.test(account.name));
 }
 
 function isWorkingCapitalAsset(account) {
@@ -6705,6 +6734,16 @@ function createStatementRow(label, amount) {
     `,
   );
   return row;
+}
+
+function setDashboardCardTone(valueElement, tone) {
+  const card = valueElement?.closest(".dashboard-card");
+  if (!card) {
+    return;
+  }
+
+  card.classList.toggle("dashboard-card-positive", tone === "positive");
+  card.classList.toggle("dashboard-card-negative", tone === "negative");
 }
 
 function renderSectionSubtotal(element, label, amount) {
