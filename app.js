@@ -5891,33 +5891,45 @@ function buildCashFlowStatementReport(journalEntries = state.journalEntries) {
   const incomeStatement = buildIncomeStatementReport(journalEntries);
   const cashAccounts = state.accounts.filter((account) => isCashAccount(account));
   const hasCashAccounts = cashAccounts.length > 0;
-  const openingCash = cashAccounts.reduce(
-    (sum, account) => sum + (Number(account.openingBalance) || 0),
-    0,
+  const openingCash = roundAssistantNumber(
+    cashAccounts.reduce((sum, account) => sum + (Number(account.openingBalance) || 0), 0),
   );
-  const cashNetChange = cashAccounts.reduce((sum, account) => {
-    const postingTotals = getPostingTotalsForAccount(account.id, journalEntries);
-    return sum + postingTotals.debits - postingTotals.credits;
-  }, 0);
-  const closingCash = openingCash + cashNetChange;
+  const cashNetChange = roundAssistantNumber(
+    cashAccounts.reduce((sum, account) => {
+      const postingTotals = getPostingTotalsForAccount(account.id, journalEntries);
+      return sum + postingTotals.debits - postingTotals.credits;
+    }, 0),
+  );
+  const closingCash = roundAssistantNumber(openingCash + cashNetChange);
 
   const accountMovements = buildAccountMovementMap(journalEntries);
   const workingCapitalAdjustments = buildWorkingCapitalAdjustments(accountMovements);
   const operatingItems = [
     {
       label: incomeStatement.netIncome >= 0 ? "Net Income" : "Net Loss",
-      amount: incomeStatement.netIncome,
+      amount: roundAssistantNumber(incomeStatement.netIncome),
     },
     ...workingCapitalAdjustments,
-  ];
-  const operatingTotal = operatingItems.reduce((sum, item) => sum + item.amount, 0);
+  ].map((item) => ({
+    ...item,
+    amount: roundAssistantNumber(item.amount),
+  }));
+  const operatingTotal = roundAssistantNumber(operatingItems.reduce((sum, item) => sum + item.amount, 0));
 
-  const investingItems = buildCashFlowItemsFromMovements(accountMovements, "investing");
-  const financingItems = buildCashFlowItemsFromMovements(accountMovements, "financing");
-  const investingTotal = investingItems.reduce((sum, item) => sum + item.amount, 0);
-  const financingTotal = financingItems.reduce((sum, item) => sum + item.amount, 0);
-  const netCashMovement = operatingTotal + investingTotal + financingTotal;
-  const balanceCheck = Math.abs(closingCash - (openingCash + netCashMovement));
+  const investingItems = buildCashFlowItemsFromMovements(accountMovements, "investing").map((item) => ({
+    ...item,
+    amount: roundAssistantNumber(item.amount),
+  }));
+  const financingItems = buildCashFlowItemsFromMovements(accountMovements, "financing").map((item) => ({
+    ...item,
+    amount: roundAssistantNumber(item.amount),
+  }));
+  const investingTotal = roundAssistantNumber(investingItems.reduce((sum, item) => sum + item.amount, 0));
+  const financingTotal = roundAssistantNumber(financingItems.reduce((sum, item) => sum + item.amount, 0));
+  const netCashMovement = roundAssistantNumber(operatingTotal + investingTotal + financingTotal);
+  const balanceCheck = roundAssistantNumber(
+    Math.abs(closingCash - roundAssistantNumber(openingCash + netCashMovement)),
+  );
 
   return {
     hasCashAccounts,
@@ -6039,7 +6051,7 @@ function buildAccountMovementMap(journalEntries = state.journalEntries) {
 
     map.set(account.id, {
       account,
-      movement,
+      movement: roundAssistantNumber(movement),
       postingTotals,
     });
     return map;
@@ -6056,16 +6068,16 @@ function buildWorkingCapitalAdjustments(accountMovements) {
 
     if (account.type === "Asset" && isVatInputAccount(account)) {
       items.push({
-        label: "VAT Input",
-        amount: -movement,
+        label: "Change in VAT Input",
+        amount: roundAssistantNumber(-movement),
       });
       return;
     }
 
     if (account.type === "Liability" && isVatOutputAccount(account)) {
       items.push({
-        label: "VAT Output",
-        amount: movement,
+        label: "Change in VAT Output",
+        amount: roundAssistantNumber(movement),
       });
       return;
     }
@@ -6073,14 +6085,14 @@ function buildWorkingCapitalAdjustments(accountMovements) {
     if (account.type === "Asset" && isWorkingCapitalAsset(account)) {
       items.push({
         label: `Change in ${account.name}`,
-        amount: -movement,
+        amount: roundAssistantNumber(-movement),
       });
     }
 
     if (account.type === "Liability" && isWorkingCapitalLiability(account)) {
       items.push({
         label: `Change in ${account.name}`,
-        amount: movement,
+        amount: roundAssistantNumber(movement),
       });
     }
   });
@@ -6099,7 +6111,7 @@ function buildCashFlowItemsFromMovements(accountMovements, category) {
     if (category === "investing" && account.type === "Asset" && isInvestingAsset(account)) {
       items.push({
         label: movement >= 0 ? `Purchase of ${account.name}` : `Sale of ${account.name}`,
-        amount: -movement,
+        amount: roundAssistantNumber(-movement),
       });
     }
 
@@ -6107,14 +6119,14 @@ function buildCashFlowItemsFromMovements(accountMovements, category) {
       if (account.type === "Equity" && !isOpeningBalanceEquityAccount(account)) {
         items.push({
           label: `Movement in ${account.name}`,
-          amount: movement,
+          amount: roundAssistantNumber(movement),
         });
       }
 
       if (account.type === "Liability" && isFinancingLiability(account)) {
         items.push({
           label: `Movement in ${account.name}`,
-          amount: movement,
+          amount: roundAssistantNumber(movement),
         });
       }
     }
@@ -6194,7 +6206,10 @@ function isVatOutputAccount(account) {
 }
 
 function isWorkingCapitalAsset(account) {
-  return /(receivable|inventory|stock|prepaid|deposit|supplies|debtor)/i.test(account.name);
+  return (
+    isVatInputAccount(account) ||
+    /(receivable|inventory|stock|prepaid|deposit|supplies|debtor)/i.test(account.name)
+  );
 }
 
 function isInvestingAsset(account) {
@@ -6215,6 +6230,10 @@ function classifyBalanceSheetSection(account) {
   const name = account.name.toLowerCase();
 
   if (account.type === "Asset") {
+    if (isVatInputAccount(account)) {
+      return "current-asset";
+    }
+
     if (
       /(cash|bank|petty cash|receivable|inventory|stock|prepaid|deposit|supplies|debtor)/i.test(
         name,
