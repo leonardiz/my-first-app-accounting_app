@@ -549,7 +549,9 @@ app.post("/api/bills", async (req, res) => {
       overdueNotifiedAt: null,
     });
 
-    await syncBillJournalEntry(req.user._id, activeCompany._id, bill);
+    await syncBillJournalEntry(req.user._id, activeCompany._id, bill, {
+      skipIfEntryExists: true,
+    });
     await notifyBillIfOverdue({ user: req.user, company: activeCompany, previousBill: null, bill });
     return res.status(201).json({ bill: serializeBill(bill) });
   } catch (error) {
@@ -755,6 +757,48 @@ app.delete("/api/journal-entries/:id", async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     return sendServerError(res, error, "Failed to delete journal entry.");
+  }
+});
+
+app.post("/api/cleanup-duplicates", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const journalEntries = await JournalEntry.find({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      sourceType: { $in: ["bill", "invoice"] },
+      sourceId: { $ne: "" },
+    }).sort({ createdAt: -1, _id: -1 });
+
+    const seenSignatures = new Set();
+    const duplicateIdsToDelete = [];
+
+    for (const entry of journalEntries) {
+      const signature = buildJournalEntryDuplicateSignature(entry);
+      if (seenSignatures.has(signature)) {
+        duplicateIdsToDelete.push(entry._id);
+        continue;
+      }
+
+      seenSignatures.add(signature);
+    }
+
+    let deletedCount = 0;
+    if (duplicateIdsToDelete.length) {
+      const deletion = await JournalEntry.deleteMany({
+        _id: { $in: duplicateIdsToDelete },
+        userId: req.user._id,
+        companyId: activeCompany._id,
+      });
+      deletedCount = deletion.deletedCount || 0;
+    }
+
+    return res.json({
+      success: true,
+      deletedCount,
+    });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to clean duplicate journal entries.");
   }
 });
 
@@ -1457,17 +1501,77 @@ async function ensureCompanyAccount(userId, companyId, config) {
   });
 }
 
-async function syncInvoiceJournalEntry(userId, companyId, invoice) {
+function calculateJournalLineTotals(lines = []) {
+  return (lines || []).reduce(
+    (sum, line) => ({
+      debits: sum.debits + (Number(line.debit) || 0),
+      credits: sum.credits + (Number(line.credit) || 0),
+    }),
+    { debits: 0, credits: 0 },
+  );
+}
+
+function isJournalEntryBalanced(entry) {
+  const totals = calculateJournalLineTotals(entry?.lines || []);
+  return Math.abs(totals.debits - totals.credits) < 0.005;
+}
+
+async function findSourceJournalEntries(userId, companyId, sourceType, sourceId) {
+  return JournalEntry.find({
+    userId,
+    companyId,
+    sourceType,
+    sourceId,
+  }).sort({ createdAt: -1, _id: -1 });
+}
+
+function buildJournalEntryDuplicateSignature(entry) {
+  const normalizedLines = (entry?.lines || [])
+    .map((line) => ({
+      accountId: String(line.accountId || ""),
+      debit: roundMoney(Number(line.debit) || 0),
+      credit: roundMoney(Number(line.credit) || 0),
+    }))
+    .sort((left, right) =>
+      `${left.accountId}:${left.debit}:${left.credit}`.localeCompare(
+        `${right.accountId}:${right.debit}:${right.credit}`,
+      ),
+    );
+
+  return JSON.stringify({
+    sourceType: String(entry?.sourceType || ""),
+    sourceId: String(entry?.sourceId || ""),
+    date: String(entry?.date || ""),
+    lines: normalizedLines,
+  });
+}
+
+async function syncInvoiceJournalEntry(userId, companyId, invoice, options = {}) {
   if (!invoice) {
     return;
   }
 
-  await JournalEntry.deleteMany({
-    userId,
-    companyId,
-    sourceType: "invoice",
-    sourceId: invoice._id.toString(),
-  });
+  const sourceId = invoice._id.toString();
+  const existingEntries = await findSourceJournalEntries(userId, companyId, "invoice", sourceId);
+
+  if (options.repairOnlyIfMissingOrUnbalanced) {
+    if (existingEntries.length && existingEntries.some((entry) => isJournalEntryBalanced(entry))) {
+      return;
+    }
+
+    if (existingEntries.length) {
+      await JournalEntry.deleteMany({
+        _id: { $in: existingEntries.map((entry) => entry._id) },
+      });
+    }
+  } else {
+    await JournalEntry.deleteMany({
+      userId,
+      companyId,
+      sourceType: "invoice",
+      sourceId,
+    });
+  }
 
   if (invoice.status !== "Sent" && invoice.status !== "Paid") {
     return;
@@ -1521,7 +1625,7 @@ async function syncInvoiceJournalEntry(userId, companyId, invoice) {
     date: invoice.invoiceDate,
     description: `Invoice ${invoice.invoiceNumber} - ${invoice.clientName}`,
     sourceType: "invoice",
-    sourceId: invoice._id.toString(),
+    sourceId,
     lines,
   });
 }
@@ -1580,17 +1684,34 @@ function deriveBillExpenseAccountName(description) {
   return cleaned ? `Expense - ${cleaned}` : "Expense - Supplier Bill";
 }
 
-async function syncBillJournalEntry(userId, companyId, bill) {
+async function syncBillJournalEntry(userId, companyId, bill, options = {}) {
   if (!bill) {
     return;
   }
 
-  await JournalEntry.deleteMany({
-    userId,
-    companyId,
-    sourceType: "bill",
-    sourceId: bill._id.toString(),
-  });
+  const sourceId = bill._id.toString();
+  const existingEntries = await findSourceJournalEntries(userId, companyId, "bill", sourceId);
+
+  if (options.repairOnlyIfMissingOrUnbalanced) {
+    if (existingEntries.length && existingEntries.some((entry) => isJournalEntryBalanced(entry))) {
+      return;
+    }
+
+    if (existingEntries.length) {
+      await JournalEntry.deleteMany({
+        _id: { $in: existingEntries.map((entry) => entry._id) },
+      });
+    }
+  } else if (options.skipIfEntryExists && existingEntries.length) {
+    return;
+  } else {
+    await JournalEntry.deleteMany({
+      userId,
+      companyId,
+      sourceType: "bill",
+      sourceId,
+    });
+  }
 
   if (!shouldCreateBillJournalEntry(bill)) {
     return;
@@ -1647,7 +1768,7 @@ async function syncBillJournalEntry(userId, companyId, bill) {
     date: bill.billDate,
     description: `Bill ${bill.billNumber} - ${bill.supplierName}`,
     sourceType: "bill",
-    sourceId: bill._id.toString(),
+    sourceId,
     lines,
   });
 }
@@ -1661,9 +1782,13 @@ function getMailTransport() {
     host: smtpHost,
     port: smtpPort,
     secure: smtpPort === 465,
+    family: 4,
     auth: {
       user: smtpUser,
       pass: smtpPass,
+    },
+    tls: {
+      rejectUnauthorized: false,
     },
   });
 }
@@ -2044,11 +2169,15 @@ async function repairExistingTaxJournalEntries() {
   ]);
 
   for (const invoice of invoices) {
-    await syncInvoiceJournalEntry(invoice.userId, invoice.companyId, invoice);
+    await syncInvoiceJournalEntry(invoice.userId, invoice.companyId, invoice, {
+      repairOnlyIfMissingOrUnbalanced: true,
+    });
   }
 
   for (const bill of bills) {
-    await syncBillJournalEntry(bill.userId, bill.companyId, bill);
+    await syncBillJournalEntry(bill.userId, bill.companyId, bill, {
+      repairOnlyIfMissingOrUnbalanced: true,
+    });
   }
 
   console.log(`Repaired ${invoices.length} invoice journal entries and ${bills.length} bill journal entries with tax.`);

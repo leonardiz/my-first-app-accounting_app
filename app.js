@@ -5892,15 +5892,21 @@ function buildCashFlowStatementReport(journalEntries = state.journalEntries) {
   const cashAccounts = state.accounts.filter((account) => isCashAccount(account));
   const hasCashAccounts = cashAccounts.length > 0;
   const openingCash = roundAssistantNumber(
-    cashAccounts.reduce((sum, account) => sum + (Number(account.openingBalance) || 0), 0),
+    cashAccounts.reduce(
+      (sum, account) => roundAssistantNumber(sum + roundAssistantNumber(Number(account.openingBalance) || 0)),
+      0,
+    ),
   );
   const cashNetChange = roundAssistantNumber(
     cashAccounts.reduce((sum, account) => {
       const postingTotals = getPostingTotalsForAccount(account.id, journalEntries);
-      return sum + postingTotals.debits - postingTotals.credits;
+      return roundAssistantNumber(
+        roundAssistantNumber(sum + roundAssistantNumber(postingTotals.debits)) -
+          roundAssistantNumber(postingTotals.credits),
+      );
     }, 0),
   );
-  const closingCash = roundAssistantNumber(openingCash + cashNetChange);
+  const closingCash = roundAssistantNumber(roundAssistantNumber(openingCash) + roundAssistantNumber(cashNetChange));
 
   const accountMovements = buildAccountMovementMap(journalEntries);
   const workingCapitalAdjustments = buildWorkingCapitalAdjustments(accountMovements);
@@ -5914,7 +5920,9 @@ function buildCashFlowStatementReport(journalEntries = state.journalEntries) {
     ...item,
     amount: roundAssistantNumber(item.amount),
   }));
-  const operatingTotal = roundAssistantNumber(operatingItems.reduce((sum, item) => sum + item.amount, 0));
+  const operatingTotal = roundAssistantNumber(
+    operatingItems.reduce((sum, item) => roundAssistantNumber(sum + roundAssistantNumber(item.amount)), 0),
+  );
 
   const investingItems = buildCashFlowItemsFromMovements(accountMovements, "investing").map((item) => ({
     ...item,
@@ -5924,11 +5932,22 @@ function buildCashFlowStatementReport(journalEntries = state.journalEntries) {
     ...item,
     amount: roundAssistantNumber(item.amount),
   }));
-  const investingTotal = roundAssistantNumber(investingItems.reduce((sum, item) => sum + item.amount, 0));
-  const financingTotal = roundAssistantNumber(financingItems.reduce((sum, item) => sum + item.amount, 0));
-  const netCashMovement = roundAssistantNumber(operatingTotal + investingTotal + financingTotal);
+  const investingTotal = roundAssistantNumber(
+    investingItems.reduce((sum, item) => roundAssistantNumber(sum + roundAssistantNumber(item.amount)), 0),
+  );
+  const financingTotal = roundAssistantNumber(
+    financingItems.reduce((sum, item) => roundAssistantNumber(sum + roundAssistantNumber(item.amount)), 0),
+  );
+  const netCashMovement = roundAssistantNumber(
+    roundAssistantNumber(roundAssistantNumber(operatingTotal) + roundAssistantNumber(investingTotal)) +
+      roundAssistantNumber(financingTotal),
+  );
   const balanceCheck = roundAssistantNumber(
-    Math.abs(closingCash - roundAssistantNumber(openingCash + netCashMovement)),
+    roundAssistantNumber(closingCash) -
+      roundAssistantNumber(
+        roundAssistantNumber(roundAssistantNumber(openingCash) + roundAssistantNumber(operatingTotal)) +
+          roundAssistantNumber(roundAssistantNumber(investingTotal) + roundAssistantNumber(financingTotal)),
+      ),
   );
 
   return {
@@ -6031,8 +6050,8 @@ function getPostingTotalsForAccount(accountId, journalEntries = state.journalEnt
     .filter((line) => line.accountId === accountId)
     .reduce(
       (sum, line) => ({
-        debits: sum.debits + (Number(line.debit) || 0),
-        credits: sum.credits + (Number(line.credit) || 0),
+        debits: roundAssistantNumber(sum.debits + roundAssistantNumber(Number(line.debit) || 0)),
+        credits: roundAssistantNumber(sum.credits + roundAssistantNumber(Number(line.credit) || 0)),
       }),
       { debits: 0, credits: 0 },
     );
@@ -6044,9 +6063,13 @@ function buildAccountMovementMap(journalEntries = state.journalEntries) {
     let movement = 0;
 
     if (account.type === "Asset" || account.type === "Expense") {
-      movement = postingTotals.debits - postingTotals.credits;
+      movement = roundAssistantNumber(
+        roundAssistantNumber(postingTotals.debits) - roundAssistantNumber(postingTotals.credits),
+      );
     } else {
-      movement = postingTotals.credits - postingTotals.debits;
+      movement = roundAssistantNumber(
+        roundAssistantNumber(postingTotals.credits) - roundAssistantNumber(postingTotals.debits),
+      );
     }
 
     map.set(account.id, {
