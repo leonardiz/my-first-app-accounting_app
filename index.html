@@ -180,36 +180,20 @@
         </nav>
       </aside>
 
-      <main class="main-shell">
-        <section class="page-header panel">
-          <div class="page-header-content">
-            <div>
-              <p class="eyebrow" data-brand-eyebrow>AI Accounting</p>
-              <h2 data-page-title>LedgrAI Workspace</h2>
-              <p class="active-company-indicator" id="header-company-indicator">No active company selected</p>
-              <p class="hero-copy">
-                Navigate setup, bookkeeping, reporting, and AI support from one connected workspace.
-              </p>
-            </div>
-            <div class="page-header-actions">
-              <span class="user-badge" id="current-user-name">Account</span>
-              <button class="secondary-button" id="logout-button" type="button">Logout</button>
-            </div>
+      <main class="main-shell main-content">
+        <section class="page-header">
+          <div>
+            <h1 class="page-title" data-page-title>Financial Overview</h1>
+            <p class="page-subtitle" id="header-company-indicator">No active company selected</p>
+          </div>
+          <div class="page-header-actions">
+            <span class="user-badge" id="current-user-name">Account</span>
+            <button class="secondary-button btn btn-secondary" id="logout-button" type="button">Logout</button>
           </div>
         </section>
 
         <div class="view-stack">
         <section class="view-panel is-active" data-view="dashboard">
-          <header class="hero panel">
-            <div>
-              <p class="eyebrow">Dashboard</p>
-              <h2>Financial Overview</h2>
-              <p class="hero-copy">
-                Review the latest cash position, monthly performance, and recent activity at a glance.
-              </p>
-            </div>
-          </header>
-
           <div class="setup-banner hidden" data-setup-banner>
             <span>Complete your Company Setup first for accurate reporting.</span>
             <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
@@ -217,89 +201,140 @@
             </button>
           </div>
 
-          <div class="content-grid">
-            <section class="panel stats-panel dashboard-stats">
-              <div class="stat-card dashboard-card dashboard-card-positive">
-                <span class="stat-label">Current Cash Balance</span>
-                <strong class="stat-value" id="dashboard-cash-balance">$0.00</strong>
+          <div class="page-content">
+            <section class="ai-insight-banner" aria-label="AI insight">
+              <div class="ai-insight-meta">
+                <span class="ai-insight-icon">&#10024;</span>
+                <span class="ai-insight-label">AI Insight</span>
               </div>
-              <div class="stat-card dashboard-card">
-                <span class="stat-label">Net Income This Month</span>
-                <strong class="stat-value" id="dashboard-net-income">$0.00</strong>
-              </div>
-              <div class="stat-card dashboard-card dashboard-card-negative">
-                <span class="stat-label">Total Expenses</span>
-                <strong class="stat-value" id="dashboard-total-expenses">$0.00</strong>
-              </div>
-              <div class="stat-card dashboard-card">
-                <span class="stat-label">Accounts Payable</span>
-                <strong class="stat-value" id="dashboard-accounts-payable">$0.00</strong>
-              </div>
-              <div class="stat-card dashboard-card">
-                <span class="stat-label">Outstanding Invoices</span>
-                <strong class="stat-value" id="dashboard-outstanding-invoices">$0.00</strong>
-              </div>
-              <div class="stat-card dashboard-card dashboard-card-negative">
-                <span class="stat-label">Overdue Invoices</span>
-                <strong class="stat-value" id="dashboard-overdue-invoices">0</strong>
-              </div>
-              <div class="stat-card dashboard-card">
-                <span class="stat-label">Outstanding Bills</span>
-                <strong class="stat-value" id="dashboard-outstanding-bills">$0.00</strong>
-              </div>
-              <div class="stat-card dashboard-card dashboard-card-negative">
-                <span class="stat-label">Overdue Bills</span>
-                <strong class="stat-value" id="dashboard-overdue-bills">0</strong>
-              </div>
+              <div class="ai-insight-copy">Ask your AI assistant about your finances &#8594;</div>
+              <button class="btn btn-secondary btn-sm ai-insight-action" id="dashboard-ai-assistant-button" type="button">
+                &#8594;
+              </button>
             </section>
 
-            <section class="panel table-panel">
-              <div class="table-toolbar">
-                <div>
-                  <h3>Pending Approvals</h3>
-                  <p>Bills above your approval threshold wait here until approved or rejected.</p>
+            <section class="kpi-grid dashboard-kpi-grid">
+              <div class="kpi-card teal dashboard-card">
+                <span class="kpi-label">Current Cash Balance</span>
+                <strong class="kpi-value" id="dashboard-cash-balance">$0.00</strong>
+                <span class="badge badge-blue" id="dashboard-cash-badge">Cash position</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
                 </div>
               </div>
 
-              <div class="table-wrapper" id="dashboard-approvals-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Bill</th>
-                      <th>Supplier</th>
-                      <th>Due Date</th>
-                      <th class="numeric">Amount</th>
-                      <th>Status</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="dashboard-approvals-body"></tbody>
-                </table>
-              </div>
-
-              <div class="empty-state hidden" id="dashboard-approvals-empty-state">
-                <h3>No bills pending approval</h3>
-                <p>High-value supplier bills will appear here when they need approval.</p>
-              </div>
-            </section>
-
-            <section class="panel table-panel">
-              <div class="table-toolbar">
-                <div>
-                  <h3>Recent Transactions</h3>
-                  <p>Latest posted journal entries across the workspace.</p>
+              <div class="kpi-card green dashboard-card">
+                <span class="kpi-label">Net Income This Month</span>
+                <strong class="kpi-value" id="dashboard-net-income">$0.00</strong>
+                <span class="badge badge-green" id="dashboard-net-income-badge">Monthly result</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
                 </div>
               </div>
 
-              <div class="section-feedback hidden" id="dashboard-status"></div>
+              <div class="kpi-card red dashboard-card">
+                <span class="kpi-label">Total Expenses</span>
+                <strong class="kpi-value" id="dashboard-total-expenses">$0.00</strong>
+                <span class="badge badge-red" id="dashboard-total-expenses-badge">Expense load</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
+                </div>
+              </div>
 
-              <div class="dashboard-transactions" id="dashboard-transactions"></div>
+              <div class="kpi-card amber dashboard-card">
+                <span class="kpi-label">Accounts Payable</span>
+                <strong class="kpi-value" id="dashboard-accounts-payable">$0.00</strong>
+                <span class="badge badge-amber" id="dashboard-accounts-payable-badge">Supplier obligations</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
+                </div>
+              </div>
 
-              <div class="empty-state hidden" id="dashboard-empty-state">
-                <h3>No recent transactions</h3>
-                <p>Create journal entries to populate the dashboard activity feed.</p>
+              <div class="kpi-card blue dashboard-card">
+                <span class="kpi-label">Outstanding Invoices</span>
+                <strong class="kpi-value" id="dashboard-outstanding-invoices">$0.00</strong>
+                <span class="badge badge-blue" id="dashboard-outstanding-invoices-badge">Receivables pipeline</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
+                </div>
+              </div>
+
+              <div class="kpi-card red dashboard-card">
+                <span class="kpi-label">Overdue Invoices</span>
+                <strong class="kpi-value" id="dashboard-overdue-invoices">0</strong>
+                <span class="badge badge-red" id="dashboard-overdue-invoices-badge">Collection pressure</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
+                </div>
+              </div>
+
+              <div class="kpi-card amber dashboard-card">
+                <span class="kpi-label">Outstanding Bills</span>
+                <strong class="kpi-value" id="dashboard-outstanding-bills">$0.00</strong>
+                <span class="badge badge-amber" id="dashboard-outstanding-bills-badge">Upcoming payables</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
+                </div>
+              </div>
+
+              <div class="kpi-card red dashboard-card">
+                <span class="kpi-label">Overdue Bills</span>
+                <strong class="kpi-value" id="dashboard-overdue-bills">0</strong>
+                <span class="badge badge-red" id="dashboard-overdue-bills-badge">Payment risk</span>
+                <div class="kpi-trend">
+                  <span class="kpi-trend-label">30-day trend</span>
+                  <div class="kpi-sparkline-placeholder" aria-hidden="true"></div>
+                </div>
               </div>
             </section>
+
+            <div class="dashboard-command-grid">
+              <section class="section-card">
+                <div class="section-card-header">
+                  <h3 class="section-card-title">Recent Transactions</h3>
+                </div>
+                <div class="section-card-body">
+                  <div class="section-feedback hidden" id="dashboard-status"></div>
+                  <div class="data-table-wrapper hidden" id="dashboard-transactions-wrapper">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Description</th>
+                          <th>Source</th>
+                          <th class="amount-cell">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody id="dashboard-transactions-body"></tbody>
+                    </table>
+                  </div>
+                  <div class="empty-state hidden" id="dashboard-empty-state">
+                    <h3>No recent transactions</h3>
+                    <p>Create journal entries to populate the dashboard activity feed.</p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section-card">
+                <div class="section-card-header">
+                  <h3 class="section-card-title">Pending Actions</h3>
+                </div>
+                <div class="section-card-body">
+                  <div class="dashboard-actions-list" id="dashboard-pending-actions"></div>
+                  <div class="empty-state hidden" id="dashboard-pending-actions-empty-state">
+                    <h3>No pending actions</h3>
+                    <p>Approvals and overdue items will appear here.</p>
+                  </div>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
 
@@ -308,9 +343,6 @@
             <div>
               <p class="eyebrow">Company Setup</p>
               <h2>Business Profile And Onboarding</h2>
-              <p class="hero-copy">
-                Configure your business details, base currency, and financial year with guided setup.
-              </p>
             </div>
           </header>
 
@@ -467,9 +499,6 @@
             <div>
               <p class="eyebrow">Chart Of Accounts</p>
               <h2>Account Register</h2>
-              <p class="hero-copy">
-                Maintain account codes, opening balances, and core classifications in one place.
-              </p>
             </div>
             <div class="hero-actions">
               <button class="primary-button" id="add-account-button" type="button">Add Account</button>
@@ -541,9 +570,6 @@
             <div>
               <p class="eyebrow">Journal Entries</p>
               <h2>Record Transactions</h2>
-              <p class="hero-copy">
-                Post balanced debit and credit activity against your chart of accounts.
-              </p>
             </div>
             <div class="hero-actions">
               <button class="primary-button" id="add-journal-button" type="button">
@@ -628,9 +654,6 @@
             <div>
               <p class="eyebrow">Invoices</p>
               <h2>Invoice Management</h2>
-              <p class="hero-copy">
-                Create client invoices, track collection status, and keep receivables tied to your books.
-              </p>
             </div>
           </header>
 
@@ -754,9 +777,6 @@
             <div>
               <p class="eyebrow">Bills</p>
               <h2>Accounts Payable</h2>
-              <p class="hero-copy">
-                Record supplier bills, manage approvals, and keep accounts payable tied to your books.
-              </p>
             </div>
           </header>
 
@@ -881,9 +901,6 @@
             <div>
               <p class="eyebrow">General Ledger</p>
               <h2>Account Activity</h2>
-              <p class="hero-copy">
-                Review opening balances, posted transactions, running balances, and closing positions.
-              </p>
             </div>
             <div class="hero-actions">
               <button class="secondary-button print-hide" id="print-ledger-button" type="button">
@@ -947,9 +964,6 @@
             <div>
               <p class="eyebrow">Trial Balance</p>
               <h2>Debit And Credit Review</h2>
-              <p class="hero-copy">
-                Compare total debits, credits, and closing balances across all accounts.
-              </p>
             </div>
             <div class="hero-actions">
               <button class="secondary-button print-hide" id="print-trial-balance-button" type="button">
@@ -1023,21 +1037,6 @@
         </section>
 
         <section class="view-panel" data-view="income-statement">
-          <header class="hero panel">
-            <div>
-              <p class="eyebrow">Income Statement</p>
-              <h2>Profit And Loss</h2>
-              <p class="hero-copy">
-                Revenue and expense accounts roll up automatically into gross profit and net income.
-              </p>
-            </div>
-            <div class="hero-actions">
-              <button class="secondary-button print-hide" id="print-income-statement-button" type="button">
-                Export PDF
-              </button>
-            </div>
-          </header>
-
           <div class="setup-banner hidden" data-setup-banner>
             <span>Complete your Company Setup first for accurate reporting.</span>
             <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
@@ -1045,108 +1044,76 @@
             </button>
           </div>
 
-          <section class="panel report-filter-panel" data-report-filter="income-statement">
-            <div class="table-toolbar report-filter-toolbar">
-              <div>
-                <h3>Reporting Period</h3>
-                <p>Filter income statement activity by transaction date.</p>
-              </div>
-              <p class="report-filter-summary" data-report-filter-summary></p>
-            </div>
-
-            <div class="report-filter-grid">
-              <label>
-                <span>Start Date</span>
-                <input data-report-filter-start type="date" />
-              </label>
-
-              <label>
-                <span>End Date</span>
-                <input data-report-filter-end type="date" />
-              </label>
-            </div>
-
-            <div class="report-filter-presets" role="group" aria-label="Quick date ranges">
-              <button class="ghost-button" type="button" data-report-filter-preset="this-month">This Month</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="last-month">Last Month</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="this-quarter">This Quarter</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="last-quarter">Last Quarter</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="this-year">This Year</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="all-time">All Time</button>
-            </div>
-          </section>
-
-          <div class="content-grid" id="income-statement-section">
-            <section class="panel stats-panel income-stats">
-              <div class="stat-card">
-                <span class="stat-label">Revenue</span>
-                <strong class="stat-value" id="income-total-revenue">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Gross Profit</span>
-                <strong class="stat-value" id="income-gross-profit">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Operating Expenses</span>
-                <strong class="stat-value" id="income-operating-expenses">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Net Income / Loss</span>
-                <strong class="stat-value" id="income-net-income">$0.00</strong>
-              </div>
-            </section>
-
-            <section class="panel table-panel">
-              <div class="table-toolbar">
-                <div>
-                  <h3>Income Statement</h3>
-                  <p>
-                    Gross profit currently equals total revenue because there is no separate cost of sales category in the chart.
-                  </p>
+          <div class="page-content">
+            <section class="section-card statement-shell" id="income-statement-section">
+              <div class="statement-page-header">
+                <h2 class="page-title">Income Statement</h2>
+                <div class="statement-page-actions">
+                  <div class="report-filter-presets print-hide" role="group" aria-label="Quick date ranges">
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-month">This Month</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="last-month">Last Month</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-quarter">This Quarter</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="last-quarter">Last Quarter</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-year">This Year</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="all-time">All Time</button>
+                  </div>
+                  <button class="secondary-button print-hide btn btn-secondary" id="print-income-statement-button" type="button">
+                    Export PDF
+                  </button>
                 </div>
               </div>
+              <section class="panel report-filter-panel statement-filter-panel" data-report-filter="income-statement">
+                <div class="report-filter-grid">
+                  <label>
+                    <span>Start Date</span>
+                    <input data-report-filter-start type="date" />
+                  </label>
 
-              <div class="statement-layout">
-                <div class="statement-block">
-                  <h3>Revenue</h3>
-                  <div id="income-revenue-list" class="statement-list"></div>
+                  <label>
+                    <span>End Date</span>
+                    <input data-report-filter-end type="date" />
+                  </label>
                 </div>
-                <div class="statement-block">
-                  <h3>Operating Expenses</h3>
-                  <div id="income-expense-list" class="statement-list"></div>
+                <p class="report-filter-summary" data-report-filter-summary></p>
+              </section>
+
+              <section class="kpi-grid statement-summary-grid">
+                <div class="kpi-card blue">
+                  <span class="kpi-label">Total Revenue</span>
+                  <strong class="kpi-value" id="income-total-revenue">$0.00</strong>
                 </div>
-              </div>
+                <div class="kpi-card red">
+                  <span class="kpi-label">Total Expenses</span>
+                  <strong class="kpi-value" id="income-operating-expenses">$0.00</strong>
+                </div>
+                <div class="kpi-card teal">
+                  <span class="kpi-label">Net Income</span>
+                  <strong class="kpi-value" id="income-net-income">$0.00</strong>
+                  <span class="badge badge-green" id="income-status-badge">Net Profit</span>
+                </div>
+              </section>
 
-              <div class="summary-table-wrapper">
-                <table>
-                  <tbody id="income-summary-body"></tbody>
-                </table>
-              </div>
-
-              <div class="empty-state hidden" id="income-statement-empty-state">
-                <h3>No income statement data yet</h3>
-                <p>Add revenue or expense accounts and post activity to generate this statement.</p>
-              </div>
+              <section class="section-card statement-report-card">
+                <div class="section-card-body">
+                  <div class="statement-report-grid">
+                    <div id="income-revenue-list" class="statement-list"></div>
+                    <div id="income-expense-list" class="statement-list"></div>
+                  </div>
+                  <div class="fs-total" id="income-summary-total">
+                    <span>Net Income</span>
+                    <strong id="income-gross-profit">$0.00</strong>
+                  </div>
+                  <div class="empty-state hidden" id="income-statement-empty-state">
+                    <h3>No income statement data yet</h3>
+                    <p>Add revenue or expense accounts and post activity to generate this statement.</p>
+                  </div>
+                </div>
+              </section>
             </section>
           </div>
         </section>
 
         <section class="view-panel" data-view="balance-sheet">
-          <header class="hero panel">
-            <div>
-              <p class="eyebrow">Balance Sheet</p>
-              <h2>Statement Of Financial Position</h2>
-              <p class="hero-copy">
-                Review closing balances for assets, liabilities, equity, and retained earnings.
-              </p>
-            </div>
-            <div class="hero-actions">
-              <button class="secondary-button print-hide" id="print-balance-sheet-button" type="button">
-                Export PDF
-              </button>
-            </div>
-          </header>
-
           <div class="setup-banner hidden" data-setup-banner>
             <span>Complete your Company Setup first for accurate reporting.</span>
             <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
@@ -1154,141 +1121,86 @@
             </button>
           </div>
 
-          <section class="panel report-filter-panel" data-report-filter="balance-sheet">
-            <div class="table-toolbar report-filter-toolbar">
-              <div>
-                <h3>Reporting Period</h3>
-                <p>Filter balance sheet activity by transaction date.</p>
-              </div>
-              <p class="report-filter-summary" data-report-filter-summary></p>
-            </div>
-
-            <div class="report-filter-grid">
-              <label>
-                <span>Start Date</span>
-                <input data-report-filter-start type="date" />
-              </label>
-
-              <label>
-                <span>End Date</span>
-                <input data-report-filter-end type="date" />
-              </label>
-            </div>
-
-            <div class="report-filter-presets" role="group" aria-label="Quick date ranges">
-              <button class="ghost-button" type="button" data-report-filter-preset="this-month">This Month</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="last-month">Last Month</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="this-quarter">This Quarter</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="last-quarter">Last Quarter</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="this-year">This Year</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="all-time">All Time</button>
-            </div>
-          </section>
-          <div class="content-grid" id="balance-sheet-section">
-            <section class="panel stats-panel income-stats">
-              <div class="stat-card">
-                <span class="stat-label">Total Assets</span>
-                <strong class="stat-value" id="balance-sheet-total-assets">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Total Liabilities</span>
-                <strong class="stat-value" id="balance-sheet-total-liabilities">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Total Equity</span>
-                <strong class="stat-value" id="balance-sheet-total-equity">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Balance Difference</span>
-                <strong class="stat-value" id="balance-sheet-difference">$0.00</strong>
-              </div>
-            </section>
-
-            <section class="panel table-panel">
-              <div class="table-toolbar">
-                <div>
-                  <h3>Balance Sheet</h3>
-                  <p>Total assets should equal total liabilities plus equity.</p>
+          <div class="page-content">
+            <section class="section-card statement-shell" id="balance-sheet-section">
+              <div class="statement-page-header">
+                <h2 class="page-title">Balance Sheet</h2>
+                <div class="statement-page-actions">
+                  <div class="report-filter-presets print-hide" role="group" aria-label="Quick date ranges">
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-month">This Month</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="last-month">Last Month</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-quarter">This Quarter</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="last-quarter">Last Quarter</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-year">This Year</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="all-time">All Time</button>
+                  </div>
+                  <button class="secondary-button print-hide btn btn-secondary" id="print-balance-sheet-button" type="button">
+                    Export PDF
+                  </button>
                 </div>
               </div>
+              <section class="panel report-filter-panel statement-filter-panel" data-report-filter="balance-sheet">
+                <div class="report-filter-grid">
+                  <label>
+                    <span>Start Date</span>
+                    <input data-report-filter-start type="date" />
+                  </label>
 
-              <div class="statement-layout statement-layout-3">
-                <div class="statement-block section-card section-assets">
-                  <div class="section-card-header">
-                    <h3>Assets</h3>
-                  </div>
-                  <div class="section-card-body">
+                  <label>
+                    <span>End Date</span>
+                    <input data-report-filter-end type="date" />
+                  </label>
+                </div>
+                <p class="report-filter-summary" data-report-filter-summary></p>
+              </section>
+
+              <section class="kpi-grid statement-summary-grid">
+                <div class="kpi-card blue">
+                  <span class="kpi-label">Total Assets</span>
+                  <strong class="kpi-value" id="balance-sheet-total-assets">$0.00</strong>
+                </div>
+                <div class="kpi-card amber">
+                  <span class="kpi-label">Total Liabilities</span>
+                  <strong class="kpi-value" id="balance-sheet-total-liabilities">$0.00</strong>
+                </div>
+                <div class="kpi-card teal">
+                  <span class="kpi-label">Total Equity</span>
+                  <strong class="kpi-value" id="balance-sheet-total-equity">$0.00</strong>
+                  <span class="badge badge-green" id="balance-sheet-badge">✓ Balanced</span>
+                </div>
+              </section>
+
+              <section class="section-card statement-report-card">
+                <div class="section-card-body">
+                  <div class="statement-report-grid statement-report-grid-single">
                     <div id="balance-sheet-assets-list" class="statement-list"></div>
-                    <div id="balance-sheet-assets-subtotal" class="section-subtotal"></div>
-                  </div>
-                </div>
-                <div class="statement-block section-card section-liabilities">
-                  <div class="section-card-header">
-                    <h3>Liabilities</h3>
-                  </div>
-                  <div class="section-card-body">
                     <div id="balance-sheet-liabilities-list" class="statement-list"></div>
-                    <div id="balance-sheet-liabilities-subtotal" class="section-subtotal"></div>
-                  </div>
-                </div>
-                <div class="statement-block section-card section-equity">
-                  <div class="section-card-header">
-                    <h3>Equity</h3>
-                  </div>
-                  <div class="section-card-body">
                     <div id="balance-sheet-equity-list" class="statement-list"></div>
-                    <div id="balance-sheet-equity-subtotal" class="section-subtotal"></div>
+                  </div>
+                  <div class="fs-total" id="balance-sheet-assets-subtotal">
+                    <span>Total Assets</span>
+                    <strong id="balance-sheet-assets-figure">$0.00</strong>
+                  </div>
+                  <div class="fs-total" id="balance-sheet-liabilities-subtotal">
+                    <span>Total Liabilities</span>
+                    <strong id="balance-sheet-liabilities-equity-figure">$0.00</strong>
+                  </div>
+                  <div class="fs-total" id="balance-sheet-equity-subtotal">
+                    <span>Total Equity</span>
+                    <strong id="balance-sheet-difference">$0.00</strong>
+                  </div>
+                  <div class="report-status" id="balance-sheet-check-status"></div>
+                  <div class="empty-state hidden" id="balance-sheet-empty-state">
+                    <h3>No balance sheet data yet</h3>
+                    <p>Add accounts and post activity to generate the statement of financial position.</p>
                   </div>
                 </div>
-              </div>
-
-              <div class="balance-figures">
-                <div class="balance-figure-card">
-                  <span>Total Assets</span>
-                  <strong id="balance-sheet-assets-figure">$0.00</strong>
-                </div>
-                <div class="balance-figure-card">
-                  <span>Total Liabilities + Equity</span>
-                  <strong id="balance-sheet-liabilities-equity-figure">$0.00</strong>
-                </div>
-              </div>
-
-              <div class="balance-check-row">
-                <span class="balance-badge" id="balance-sheet-badge">BALANCED</span>
-              </div>
-
-              <div class="summary-table-wrapper">
-                <table>
-                  <tbody id="balance-sheet-summary-body"></tbody>
-                </table>
-              </div>
-
-              <div class="report-status" id="balance-sheet-check-status"></div>
-
-              <div class="empty-state hidden" id="balance-sheet-empty-state">
-                <h3>No balance sheet data yet</h3>
-                <p>Add accounts and post activity to generate the statement of financial position.</p>
-              </div>
+              </section>
             </section>
           </div>
         </section>
 
         <section class="view-panel" data-view="cash-flow">
-          <header class="hero panel">
-            <div>
-              <p class="eyebrow">Cash Flow Statement</p>
-              <h2>Cash Movement Analysis</h2>
-              <p class="hero-copy">
-                Review operating, investing, and financing cash movements generated from posted journals.
-              </p>
-            </div>
-            <div class="hero-actions">
-              <button class="secondary-button print-hide" id="print-cash-flow-button" type="button">
-                Export PDF
-              </button>
-            </div>
-          </header>
-
           <div class="setup-banner hidden" data-setup-banner>
             <span>Complete your Company Setup first for accurate reporting.</span>
             <button class="icon-button setup-banner-dismiss" type="button" data-dismiss-setup-banner aria-label="Dismiss setup reminder">
@@ -1296,108 +1208,80 @@
             </button>
           </div>
 
-          <section class="panel report-filter-panel" data-report-filter="cash-flow">
-            <div class="table-toolbar report-filter-toolbar">
-              <div>
-                <h3>Reporting Period</h3>
-                <p>Filter cash flow activity by transaction date.</p>
-              </div>
-              <p class="report-filter-summary" data-report-filter-summary></p>
-            </div>
-
-            <div class="report-filter-grid">
-              <label>
-                <span>Start Date</span>
-                <input data-report-filter-start type="date" />
-              </label>
-
-              <label>
-                <span>End Date</span>
-                <input data-report-filter-end type="date" />
-              </label>
-            </div>
-
-            <div class="report-filter-presets" role="group" aria-label="Quick date ranges">
-              <button class="ghost-button" type="button" data-report-filter-preset="this-month">This Month</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="last-month">Last Month</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="this-quarter">This Quarter</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="last-quarter">Last Quarter</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="this-year">This Year</button>
-              <button class="ghost-button" type="button" data-report-filter-preset="all-time">All Time</button>
-            </div>
-          </section>
-          <div class="content-grid" id="cash-flow-section">
-            <section class="panel stats-panel income-stats">
-              <div class="stat-card">
-                <span class="stat-label">Opening Cash</span>
-                <strong class="stat-value" id="cash-flow-opening-cash">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Net Cash Movement</span>
-                <strong class="stat-value" id="cash-flow-net-movement">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Closing Cash</span>
-                <strong class="stat-value" id="cash-flow-closing-cash">$0.00</strong>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">Cash Balance Check</span>
-                <strong class="stat-value" id="cash-flow-balance-check">$0.00</strong>
-              </div>
-            </section>
-
-            <section class="panel table-panel">
-              <div class="table-toolbar">
-                <div>
-                  <h3>Cash Flow Statement</h3>
-                  <p>
-                    Operating uses an indirect approach with working-capital adjustments inferred from account names and types.
-                  </p>
+          <div class="page-content">
+            <section class="section-card statement-shell" id="cash-flow-section">
+              <div class="statement-page-header">
+                <h2 class="page-title">Cash Flow Statement</h2>
+                <div class="statement-page-actions">
+                  <div class="report-filter-presets print-hide" role="group" aria-label="Quick date ranges">
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-month">This Month</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="last-month">Last Month</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-quarter">This Quarter</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="last-quarter">Last Quarter</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="this-year">This Year</button>
+                    <button class="ghost-button" type="button" data-report-filter-preset="all-time">All Time</button>
+                  </div>
+                  <button class="secondary-button print-hide btn btn-secondary" id="print-cash-flow-button" type="button">
+                    Export PDF
+                  </button>
                 </div>
               </div>
+              <section class="panel report-filter-panel statement-filter-panel" data-report-filter="cash-flow">
+                <div class="report-filter-grid">
+                  <label>
+                    <span>Start Date</span>
+                    <input data-report-filter-start type="date" />
+                  </label>
 
-              <div class="statement-layout statement-layout-3">
-                <div class="statement-block section-card section-assets">
-                  <div class="section-card-header">
-                    <h3>Operating Activities</h3>
-                  </div>
-                  <div class="section-card-body">
+                  <label>
+                    <span>End Date</span>
+                    <input data-report-filter-end type="date" />
+                  </label>
+                </div>
+                <p class="report-filter-summary" data-report-filter-summary></p>
+              </section>
+
+              <section class="kpi-grid statement-summary-grid">
+                <div class="kpi-card blue">
+                  <span class="kpi-label">Opening Cash</span>
+                  <strong class="kpi-value" id="cash-flow-opening-cash">$0.00</strong>
+                </div>
+                <div class="kpi-card amber">
+                  <span class="kpi-label">Net Movement</span>
+                  <strong class="kpi-value" id="cash-flow-net-movement">$0.00</strong>
+                </div>
+                <div class="kpi-card teal">
+                  <span class="kpi-label">Closing Cash</span>
+                  <strong class="kpi-value" id="cash-flow-closing-cash">$0.00</strong>
+                  <span class="badge badge-green" id="cash-flow-status">✓ Reconciled</span>
+                </div>
+              </section>
+
+              <section class="section-card statement-report-card">
+                <div class="section-card-body">
+                  <div class="statement-report-grid statement-report-grid-single">
                     <div id="cash-flow-operating-list" class="statement-list"></div>
-                    <div id="cash-flow-operating-subtotal" class="section-subtotal"></div>
-                  </div>
-                </div>
-                <div class="statement-block section-card section-liabilities">
-                  <div class="section-card-header">
-                    <h3>Investing Activities</h3>
-                  </div>
-                  <div class="section-card-body">
                     <div id="cash-flow-investing-list" class="statement-list"></div>
-                    <div id="cash-flow-investing-subtotal" class="section-subtotal"></div>
-                  </div>
-                </div>
-                <div class="statement-block section-card section-equity">
-                  <div class="section-card-header">
-                    <h3>Financing Activities</h3>
-                  </div>
-                  <div class="section-card-body">
                     <div id="cash-flow-financing-list" class="statement-list"></div>
-                    <div id="cash-flow-financing-subtotal" class="section-subtotal"></div>
+                  </div>
+                  <div class="fs-total" id="cash-flow-operating-subtotal">
+                    <span>Net Operating Cash Flow</span>
+                    <strong id="cash-flow-balance-check">$0.00</strong>
+                  </div>
+                  <div class="fs-total" id="cash-flow-investing-subtotal">
+                    <span>Net Investing Cash Flow</span>
+                    <strong>&nbsp;</strong>
+                  </div>
+                  <div class="fs-total" id="cash-flow-financing-subtotal">
+                    <span>Net Financing Cash Flow</span>
+                    <strong>&nbsp;</strong>
+                  </div>
+                  <div class="empty-state hidden" id="cash-flow-empty-state">
+                    <h3>No cash flow data yet</h3>
+                    <p>Add cash-related accounts and post activity to generate the cash flow statement.</p>
                   </div>
                 </div>
-              </div>
-
-              <div class="summary-table-wrapper">
-                <table>
-                  <tbody id="cash-flow-summary-body"></tbody>
-                </table>
-              </div>
-
-              <div class="report-status hidden" id="cash-flow-status"></div>
-
-              <div class="empty-state hidden" id="cash-flow-empty-state">
-                <h3>No cash flow data yet</h3>
-                <p>Add cash-related accounts and post activity to generate the cash flow statement.</p>
-              </div>
+              </section>
             </section>
           </div>
         </section>
@@ -1407,9 +1291,6 @@
             <div>
               <p class="eyebrow">AI Assistant</p>
               <h2>Ask About Your Financial Data</h2>
-              <p class="hero-copy">
-                Ask questions about profitability, cash position, balances, or account activity using the live accounting data in this app.
-              </p>
             </div>
           </header>
 

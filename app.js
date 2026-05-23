@@ -226,6 +226,15 @@ const state = {
     nonCurrentLiabilities: true,
     equity: true,
   },
+  incomeStatementSections: {
+    revenue: true,
+    expenses: true,
+  },
+  cashFlowSections: {
+    operating: true,
+    investing: true,
+    financing: true,
+  },
   requestStatus: {
     dashboard: { loading: false, error: "" },
     company: { loading: false, error: "" },
@@ -273,10 +282,19 @@ const elements = {
   dashboardOverdueInvoices: document.querySelector("#dashboard-overdue-invoices"),
   dashboardOutstandingBills: document.querySelector("#dashboard-outstanding-bills"),
   dashboardOverdueBills: document.querySelector("#dashboard-overdue-bills"),
-  dashboardApprovalsWrapper: document.querySelector("#dashboard-approvals-wrapper"),
-  dashboardApprovalsBody: document.querySelector("#dashboard-approvals-body"),
-  dashboardApprovalsEmptyState: document.querySelector("#dashboard-approvals-empty-state"),
-  dashboardTransactions: document.querySelector("#dashboard-transactions"),
+  dashboardCashBadge: document.querySelector("#dashboard-cash-badge"),
+  dashboardNetIncomeBadge: document.querySelector("#dashboard-net-income-badge"),
+  dashboardTotalExpensesBadge: document.querySelector("#dashboard-total-expenses-badge"),
+  dashboardAccountsPayableBadge: document.querySelector("#dashboard-accounts-payable-badge"),
+  dashboardOutstandingInvoicesBadge: document.querySelector("#dashboard-outstanding-invoices-badge"),
+  dashboardOverdueInvoicesBadge: document.querySelector("#dashboard-overdue-invoices-badge"),
+  dashboardOutstandingBillsBadge: document.querySelector("#dashboard-outstanding-bills-badge"),
+  dashboardOverdueBillsBadge: document.querySelector("#dashboard-overdue-bills-badge"),
+  dashboardTransactionsWrapper: document.querySelector("#dashboard-transactions-wrapper"),
+  dashboardTransactionsBody: document.querySelector("#dashboard-transactions-body"),
+  dashboardPendingActions: document.querySelector("#dashboard-pending-actions"),
+  dashboardPendingActionsEmptyState: document.querySelector("#dashboard-pending-actions-empty-state"),
+  dashboardAiAssistantButton: document.querySelector("#dashboard-ai-assistant-button"),
   dashboardEmptyState: document.querySelector("#dashboard-empty-state"),
   dashboardStatus: document.querySelector("#dashboard-status"),
   companySetupForm: document.querySelector("#company-setup-form"),
@@ -329,9 +347,9 @@ const elements = {
   incomeGrossProfit: document.querySelector("#income-gross-profit"),
   incomeOperatingExpenses: document.querySelector("#income-operating-expenses"),
   incomeNetIncome: document.querySelector("#income-net-income"),
+  incomeStatusBadge: document.querySelector("#income-status-badge"),
   incomeRevenueList: document.querySelector("#income-revenue-list"),
   incomeExpenseList: document.querySelector("#income-expense-list"),
-  incomeSummaryBody: document.querySelector("#income-summary-body"),
   incomeStatementEmptyState: document.querySelector("#income-statement-empty-state"),
   printBalanceSheetButton: document.querySelector("#print-balance-sheet-button"),
   balanceSheetSection: document.querySelector("#balance-sheet-section"),
@@ -350,7 +368,6 @@ const elements = {
     "#balance-sheet-liabilities-equity-figure",
   ),
   balanceSheetBadge: document.querySelector("#balance-sheet-badge"),
-  balanceSheetSummaryBody: document.querySelector("#balance-sheet-summary-body"),
   balanceSheetCheckStatus: document.querySelector("#balance-sheet-check-status"),
   balanceSheetEmptyState: document.querySelector("#balance-sheet-empty-state"),
   cashFlowOpeningCash: document.querySelector("#cash-flow-opening-cash"),
@@ -363,7 +380,6 @@ const elements = {
   cashFlowOperatingSubtotal: document.querySelector("#cash-flow-operating-subtotal"),
   cashFlowInvestingSubtotal: document.querySelector("#cash-flow-investing-subtotal"),
   cashFlowFinancingSubtotal: document.querySelector("#cash-flow-financing-subtotal"),
-  cashFlowSummaryBody: document.querySelector("#cash-flow-summary-body"),
   cashFlowStatus: document.querySelector("#cash-flow-status"),
   cashFlowEmptyState: document.querySelector("#cash-flow-empty-state"),
   printCashFlowButton: document.querySelector("#print-cash-flow-button"),
@@ -516,19 +532,28 @@ elements.billLineItems.addEventListener("click", handleBillLineItemClick);
 elements.billStatus.addEventListener("change", renderBillNumberPreview);
 elements.billTaxPercentage.addEventListener("input", renderBillTotals);
 elements.billTableBody.addEventListener("click", handleBillTableAction);
-elements.dashboardApprovalsBody.addEventListener("click", handleDashboardApprovalAction);
+elements.dashboardPendingActions.addEventListener("click", handleDashboardApprovalAction);
 elements.reportFilterPanels.forEach((panel) => {
   panel.addEventListener("click", handleReportFilterAction);
   panel.addEventListener("change", handleReportFilterAction);
 });
+elements.incomeStatementSection.addEventListener("click", handleReportFilterAction);
+elements.balanceSheetSection.addEventListener("click", handleReportFilterAction);
+elements.cashFlowSection.addEventListener("click", handleReportFilterAction);
 elements.navItems.forEach((item) =>
   item.addEventListener("click", () => setActiveView(item.dataset.viewTarget)),
 );
 elements.balanceSheetAssetsList.addEventListener("click", handleBalanceSheetToggle);
 elements.balanceSheetLiabilitiesList.addEventListener("click", handleBalanceSheetToggle);
 elements.balanceSheetEquityList.addEventListener("click", handleBalanceSheetToggle);
+elements.incomeRevenueList.addEventListener("click", handleIncomeStatementToggle);
+elements.incomeExpenseList.addEventListener("click", handleIncomeStatementToggle);
+elements.cashFlowOperatingList.addEventListener("click", handleCashFlowToggle);
+elements.cashFlowInvestingList.addEventListener("click", handleCashFlowToggle);
+elements.cashFlowFinancingList.addEventListener("click", handleCashFlowToggle);
 elements.assistantForm.addEventListener("submit", handleAssistantSubmit);
 elements.assistantClearButton.addEventListener("click", clearAssistantChat);
+elements.dashboardAiAssistantButton.addEventListener("click", () => setActiveView("ai-assistant"));
 elements.closeConfirmationDialogButton.addEventListener("click", cancelConfirmationDialog);
 elements.confirmationDialog.addEventListener("cancel", handleConfirmationDialogCancel);
 elements.confirmationDialog.addEventListener("close", handleConfirmationDialogClose);
@@ -1461,12 +1486,12 @@ function renderNavigation() {
   const viewTitle = getViewTitle(state.currentView);
   const activeCompany = getActiveCompany();
   if (elements.pageTitle) {
-    elements.pageTitle.textContent = `${appDisplayName} ${viewTitle}`;
+    elements.pageTitle.textContent = viewTitle;
   }
   if (elements.headerCompanyIndicator) {
     elements.headerCompanyIndicator.textContent = activeCompany
-      ? `Viewing books for ${activeCompany.name || "Untitled Company"}`
-      : "No active company selected";
+      ? `${activeCompany.name || "Untitled Company"} · ${formatLongDate(new Date())}`
+      : `No active company selected · ${formatLongDate(new Date())}`;
   }
   elements.navItems.forEach((item) => {
     item.classList.toggle("is-active", item.dataset.viewTarget === state.currentView);
@@ -1605,8 +1630,10 @@ function renderSetupBanners() {
 function renderDashboard() {
   const dashboardStatus = state.requestStatus.dashboard;
   if (dashboardStatus.loading) {
-    elements.dashboardTransactions.classList.add("hidden");
+    elements.dashboardTransactionsWrapper.classList.add("hidden");
+    elements.dashboardPendingActions.classList.add("hidden");
     elements.dashboardEmptyState.classList.add("hidden");
+    elements.dashboardPendingActionsEmptyState.classList.add("hidden");
     renderSectionFeedback(elements.dashboardStatus, {
       visible: true,
       tone: "loading",
@@ -1618,8 +1645,10 @@ function renderDashboard() {
   }
 
   if (dashboardStatus.error) {
-    elements.dashboardTransactions.classList.add("hidden");
+    elements.dashboardTransactionsWrapper.classList.add("hidden");
+    elements.dashboardPendingActions.classList.add("hidden");
     elements.dashboardEmptyState.classList.add("hidden");
+    elements.dashboardPendingActionsEmptyState.classList.add("hidden");
     renderSectionFeedback(elements.dashboardStatus, {
       visible: true,
       tone: "error",
@@ -1638,62 +1667,65 @@ function renderDashboard() {
   const outstandingBills = getOutstandingBillsTotal();
   const overdueBills = getOverdueBillsCount();
   const pendingApprovalBills = getPendingApprovalBills();
+  const pendingActions = buildDashboardPendingActions(pendingApprovalBills);
   const recentTransactions = getVisibleJournalEntries()
     .slice()
     .sort((left, right) => new Date(right.date) - new Date(left.date))
-    .slice(0, 6);
+    .slice(0, 8);
 
   elements.dashboardCashBalance.textContent = currencyFormatter.format(cashFlow.closingCash);
   elements.dashboardNetIncome.textContent = currencyFormatter.format(monthlyNetIncome);
-  elements.dashboardNetIncome.classList.toggle("negative", monthlyNetIncome < 0);
   elements.dashboardTotalExpenses.textContent = currencyFormatter.format(incomeStatement.operatingExpenses);
   elements.dashboardAccountsPayable.textContent = currencyFormatter.format(accountsPayable);
   elements.dashboardOutstandingInvoices.textContent = currencyFormatter.format(outstandingInvoices);
   elements.dashboardOverdueInvoices.textContent = String(overdueInvoices);
   elements.dashboardOutstandingBills.textContent = currencyFormatter.format(outstandingBills);
   elements.dashboardOverdueBills.textContent = String(overdueBills);
-  setDashboardCardTone(elements.dashboardCashBalance, cashFlow.closingCash < 0 ? "negative" : "positive");
-  setDashboardCardTone(elements.dashboardNetIncome, monthlyNetIncome < 0 ? "negative" : "positive");
-  setDashboardCardTone(elements.dashboardTotalExpenses, "negative");
-  setDashboardCardTone(elements.dashboardAccountsPayable, "negative");
-  setDashboardCardTone(elements.dashboardOutstandingInvoices, "positive");
-  setDashboardCardTone(elements.dashboardOverdueInvoices, "negative");
-  setDashboardCardTone(elements.dashboardOutstandingBills, "negative");
-  setDashboardCardTone(elements.dashboardOverdueBills, "negative");
-  safeSetInnerHTML(elements.dashboardApprovalsBody, "");
-  if (pendingApprovalBills.length) {
-    elements.dashboardApprovalsWrapper.classList.remove("hidden");
-    elements.dashboardApprovalsEmptyState.classList.add("hidden");
-    pendingApprovalBills.forEach((bill) => {
-      const row = document.createElement("tr");
+
+  setDashboardBadge(elements.dashboardCashBadge, cashFlow.closingCash < 0 ? "Cash deficit" : "Cash available", cashFlow.closingCash < 0 ? "red" : "green");
+  setDashboardBadge(
+    elements.dashboardNetIncomeBadge,
+    monthlyNetIncome < 0 ? "Monthly loss" : "Monthly profit",
+    monthlyNetIncome < 0 ? "red" : "green",
+  );
+  setDashboardBadge(elements.dashboardTotalExpensesBadge, "Expense outflow", "red");
+  setDashboardBadge(elements.dashboardAccountsPayableBadge, pendingApprovalBills.length ? "Approvals pending" : "Supplier balances", "amber");
+  setDashboardBadge(elements.dashboardOutstandingInvoicesBadge, outstandingInvoices > 0 ? "Collections in flight" : "No open invoices", "blue");
+  setDashboardBadge(elements.dashboardOverdueInvoicesBadge, overdueInvoices > 0 ? `${overdueInvoices} overdue` : "No overdue invoices", overdueInvoices > 0 ? "red" : "green");
+  setDashboardBadge(elements.dashboardOutstandingBillsBadge, outstandingBills > 0 ? "Bills to schedule" : "No unpaid bills", "amber");
+  setDashboardBadge(elements.dashboardOverdueBillsBadge, overdueBills > 0 ? `${overdueBills} overdue` : "No overdue bills", overdueBills > 0 ? "red" : "green");
+
+  safeSetInnerHTML(elements.dashboardPendingActions, "");
+  elements.dashboardPendingActions.classList.remove("hidden");
+  if (pendingActions.length) {
+    elements.dashboardPendingActionsEmptyState.classList.add("hidden");
+    pendingActions.forEach((item) => {
+      const actionCard = document.createElement("article");
+      actionCard.className = "dashboard-action-item";
       safeSetInnerHTML(
-        row,
+        actionCard,
         `
-          <td><strong>${escapeHtml(bill.billNumber)}</strong></td>
-          <td>${escapeHtml(bill.supplierName)}</td>
-          <td>${escapeHtml(formatDate(bill.dueDate))}</td>
-          <td class="numeric">${escapeHtml(currencyFormatter.format(bill.totalAmount))}</td>
-          <td><span class="status-badge unbalanced">${escapeHtml(bill.approvalStatus)}</span></td>
-          <td>
-            <div class="table-actions">
-              <button class="ghost-button" type="button" data-action="approve-bill" data-id="${bill.id}">Approve</button>
-              <button class="ghost-button danger" type="button" data-action="reject-bill" data-id="${bill.id}">Reject</button>
-            </div>
-          </td>
+          <div class="dashboard-action-copy">
+            <span class="badge badge-${escapeHtml(item.badgeTone)}">${escapeHtml(item.badgeText)}</span>
+            <strong>${escapeHtml(item.title)}</strong>
+            <p>${escapeHtml(item.description)}</p>
+          </div>
+          ${item.actionsHtml}
         `,
       );
-      elements.dashboardApprovalsBody.appendChild(row);
+      elements.dashboardPendingActions.appendChild(actionCard);
     });
   } else {
-    elements.dashboardApprovalsWrapper.classList.add("hidden");
-    elements.dashboardApprovalsEmptyState.classList.remove("hidden");
+    elements.dashboardPendingActions.classList.add("hidden");
+    elements.dashboardPendingActionsEmptyState.classList.remove("hidden");
   }
-  safeSetInnerHTML(elements.dashboardTransactions, "");
-  elements.dashboardTransactions.classList.remove("hidden");
+
+  safeSetInnerHTML(elements.dashboardTransactionsBody, "");
+  elements.dashboardTransactionsWrapper.classList.remove("hidden");
   renderSectionFeedback(elements.dashboardStatus, { visible: false });
 
   if (!recentTransactions.length) {
-    elements.dashboardTransactions.classList.add("hidden");
+    elements.dashboardTransactionsWrapper.classList.add("hidden");
     safeSetInnerHTML(
       elements.dashboardEmptyState,
       `
@@ -1708,23 +1740,94 @@ function renderDashboard() {
   elements.dashboardEmptyState.classList.add("hidden");
   recentTransactions.forEach((entry) => {
     const totals = calculateLineTotals(entry.lineItems);
-    const amount = totals.debits;
-    const item = document.createElement("article");
-    item.className = "dashboard-transaction";
+    const amount = Math.max(totals.debits, totals.credits);
+    const row = document.createElement("tr");
     safeSetInnerHTML(
-      item,
+      row,
       `
-      <div class="dashboard-transaction-meta">
-        <strong>${escapeHtml(entry.description)}</strong>
-        <span class="dashboard-transaction-date">${escapeHtml(formatDate(entry.date))}</span>
-      </div>
-      <strong class="dashboard-transaction-amount ${amount >= 0 ? "positive" : "negative"}">
-        ${escapeHtml(currencyFormatter.format(amount))}
-      </strong>
+        <td>${escapeHtml(formatDate(entry.date))}</td>
+        <td>${escapeHtml(entry.description)}</td>
+        <td>${escapeHtml(formatDashboardEntrySource(entry))}</td>
+        <td class="amount-cell">${escapeHtml(currencyFormatter.format(amount))}</td>
       `,
     );
-    elements.dashboardTransactions.appendChild(item);
+    elements.dashboardTransactionsBody.appendChild(row);
   });
+}
+
+function buildDashboardPendingActions(pendingApprovalBills) {
+  const actions = [];
+
+  pendingApprovalBills.forEach((bill) => {
+    actions.push({
+      badgeTone: "amber",
+      badgeText: "Approval Queue",
+      title: `${bill.billNumber} · ${bill.supplierName || "Supplier Bill"}`,
+      description: `${formatDate(bill.dueDate)} · ${currencyFormatter.format(Number(bill.totalAmount) || 0)}`,
+      actionsHtml: `
+        <div class="dashboard-action-buttons">
+          <button class="btn btn-secondary btn-sm" type="button" data-action="approve-bill" data-id="${bill.id}">Approve</button>
+          <button class="btn btn-danger btn-sm" type="button" data-action="reject-bill" data-id="${bill.id}">Reject</button>
+        </div>
+      `,
+    });
+  });
+
+  state.invoices
+    .filter((invoice) => invoice.status === "Overdue")
+    .slice()
+    .sort((left, right) => new Date(left.dueDate) - new Date(right.dueDate))
+    .slice(0, 4)
+    .forEach((invoice) => {
+      actions.push({
+        badgeTone: "red",
+        badgeText: "Overdue Invoice",
+        title: invoice.invoiceNumber || "Invoice",
+        description: `${invoice.clientName || "Client"} · ${formatDate(invoice.dueDate)} · ${currencyFormatter.format(Number(invoice.totalAmount) || 0)}`,
+        actionsHtml: "",
+      });
+    });
+
+  state.bills
+    .filter((bill) => bill.status === "Overdue")
+    .slice()
+    .sort((left, right) => new Date(left.dueDate) - new Date(right.dueDate))
+    .slice(0, 4)
+    .forEach((bill) => {
+      actions.push({
+        badgeTone: "red",
+        badgeText: "Overdue Bill",
+        title: bill.billNumber || "Bill",
+        description: `${bill.supplierName || "Supplier"} · ${formatDate(bill.dueDate)} · ${currencyFormatter.format(Number(bill.totalAmount) || 0)}`,
+        actionsHtml: "",
+      });
+    });
+
+  return actions.slice(0, 8);
+}
+
+function setDashboardBadge(element, text, tone) {
+  if (!element) {
+    return;
+  }
+
+  element.textContent = text;
+  element.className = `badge badge-${tone}`;
+}
+
+function formatDashboardEntrySource(entry) {
+  const sourceType = String(entry.sourceType || "").trim().toLowerCase();
+  if (sourceType === "invoice") {
+    return "Invoice";
+  }
+  if (sourceType === "bill") {
+    return "Bill";
+  }
+  if (entry.systemGenerated || sourceType === "system") {
+    return "System";
+  }
+
+  return "Journal";
 }
 
 function buildCurrentMonthNetIncome() {
@@ -3076,17 +3179,17 @@ function isCompanySetupComplete() {
 
 function getViewTitle(viewName) {
   const titles = {
-    dashboard: "Dashboard",
+    dashboard: "Financial Overview",
     "company-setup": "Company Setup",
     invoices: "Invoices",
     bills: "Bills",
-    chart: "Workspace",
+    chart: "Chart of Accounts",
     journal: "Journal Entries",
     ledger: "General Ledger",
     "trial-balance": "Trial Balance",
     "income-statement": "Income Statement",
     "balance-sheet": "Balance Sheet",
-    "cash-flow": "Cash Flow",
+    "cash-flow": "Cash Flow Statement",
     "ai-assistant": "AI Assistant",
   };
 
@@ -3102,78 +3205,6 @@ function handleWindowResize() {
     state.mobileSidebarOpen = false;
   }
   syncSidebarState();
-}
-
-function exportSectionToPdf(sectionElement, title) {
-  if (!sectionElement) {
-    return;
-  }
-
-  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
-  if (!printWindow) {
-    window.alert("Allow pop-ups to export this statement as PDF.");
-    return;
-  }
-
-  const stylesheetUrl = new URL("styles.css", window.location.href).toString();
-  const documentTitle = `${appDisplayName} - ${title}`;
-  const companyName = state.companySetup?.companyName?.trim();
-  const heading = companyName ? `${companyName} · ${title}` : `${appDisplayName} · ${title}`;
-
-  printWindow.document.write(`
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>${escapeHtml(documentTitle)}</title>
-        <link rel="stylesheet" href="${stylesheetUrl}" />
-        <style>
-          body { padding: 24px; background: #ffffff; }
-          .print-shell { display: grid; gap: 18px; }
-          .print-heading h1 { margin-bottom: 4px; }
-          .print-heading p { margin: 0; color: #667085; }
-        </style>
-      </head>
-      <body>
-        <div class="print-shell">
-          <div class="print-heading">
-            <h1>${escapeHtml(heading)}</h1>
-            <p>${escapeHtml(new Date().toLocaleString())}</p>
-          </div>
-          ${sectionElement.outerHTML}
-        </div>
-      </body>
-    </html>
-  `);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.onload = () => {
-    printWindow.print();
-  };
-}
-
-function exportSectionToPdf(reportKey) {
-  const report = buildPrintableReport(reportKey);
-  if (!report) {
-    showToast("This report is not available for export.", "error");
-    return;
-  }
-
-  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
-  if (!printWindow) {
-    window.alert("Allow pop-ups to export this statement as PDF.");
-    return;
-  }
-
-  const filename = buildPdfFilename(report.title, report.filenameDate);
-  printWindow.document.write(buildPrintableReportDocument(report, filename));
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.onload = () => {
-    printWindow.document.title = filename;
-    printWindow.print();
-  };
 }
 
 function buildPrintableReport(reportKey) {
@@ -4833,7 +4864,6 @@ function renderTrialBalance() {
 function renderIncomeStatement() {
   safeSetInnerHTML(elements.incomeRevenueList, "");
   safeSetInnerHTML(elements.incomeExpenseList, "");
-  safeSetInnerHTML(elements.incomeSummaryBody, "");
 
   const report = buildIncomeStatementReport(getReportJournalEntries());
 
@@ -4850,45 +4880,37 @@ function renderIncomeStatement() {
     elements.incomeStatementEmptyState.classList.add("hidden");
   }
 
-  report.revenueAccounts.forEach((row) => {
-    elements.incomeRevenueList.appendChild(createStatementRow(row.account.name, row.amount));
+  renderFinancialSectionGroup({
+    container: elements.incomeRevenueList,
+    label: "Revenue",
+    sectionKey: "revenue",
+    rows: report.revenueAccounts,
+    subtotalLabel: "Total Revenue",
+    subtotalAmount: report.totalRevenue,
+    stateBucket: state.incomeStatementSections,
   });
-
-  report.expenseAccounts.forEach((row) => {
-    elements.incomeExpenseList.appendChild(createStatementRow(row.account.name, row.amount));
+  renderFinancialSectionGroup({
+    container: elements.incomeExpenseList,
+    label: "Expenses",
+    sectionKey: "expenses",
+    rows: report.expenseAccounts,
+    subtotalLabel: "Total Expenses",
+    subtotalAmount: report.operatingExpenses,
+    stateBucket: state.incomeStatementSections,
   });
 
   elements.incomeTotalRevenue.textContent = currencyFormatter.format(report.totalRevenue);
-  elements.incomeGrossProfit.textContent = currencyFormatter.format(report.grossProfit);
   elements.incomeOperatingExpenses.textContent = currencyFormatter.format(report.operatingExpenses);
   elements.incomeNetIncome.textContent = currencyFormatter.format(report.netIncome);
-  elements.incomeNetIncome.classList.toggle("negative", report.netIncome < 0);
-
-  const summaryRows = [
-    ["Total Revenue", report.totalRevenue],
-    ["Gross Profit", report.grossProfit],
-    ["Operating Expenses", report.operatingExpenses],
-    [report.netIncome >= 0 ? "Net Income" : "Net Loss", report.netIncome],
-  ];
-
-  summaryRows.forEach(([label, value]) => {
-    const row = document.createElement("tr");
-    safeSetInnerHTML(
-      row,
-      `
-        <td>${escapeHtml(label)}</td>
-        <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
-      `,
-    );
-    elements.incomeSummaryBody.appendChild(row);
-  });
+  elements.incomeGrossProfit.textContent = currencyFormatter.format(report.netIncome);
+  elements.incomeStatusBadge.textContent = report.netIncome >= 0 ? "Net Profit" : "Net Loss";
+  elements.incomeStatusBadge.className = `badge ${report.netIncome >= 0 ? "badge-green" : "badge-red"}`;
 }
 
 function renderBalanceSheet() {
   safeSetInnerHTML(elements.balanceSheetAssetsList, "");
   safeSetInnerHTML(elements.balanceSheetLiabilitiesList, "");
   safeSetInnerHTML(elements.balanceSheetEquityList, "");
-  safeSetInnerHTML(elements.balanceSheetSummaryBody, "");
 
   const report = buildBalanceSheetReport(getReportJournalEntries());
 
@@ -4946,56 +4968,17 @@ function renderBalanceSheet() {
       },
     ],
   );
-  renderSectionSubtotal(
-    elements.balanceSheetAssetsSubtotal,
-    "Total Assets",
-    report.totalAssets,
-  );
-  renderSectionSubtotal(
-    elements.balanceSheetLiabilitiesSubtotal,
-    "Total Liabilities",
-    report.totalLiabilities,
-  );
-  renderSectionSubtotal(
-    elements.balanceSheetEquitySubtotal,
-    "Total Equity",
-    report.totalEquity,
-  );
+  renderSectionSubtotal(elements.balanceSheetAssetsSubtotal, "Total Assets", report.totalAssets);
+  renderSectionSubtotal(elements.balanceSheetLiabilitiesSubtotal, "Total Liabilities", report.totalLiabilities);
+  renderSectionSubtotal(elements.balanceSheetEquitySubtotal, "Total Equity", report.totalEquity);
 
   elements.balanceSheetTotalAssets.textContent = currencyFormatter.format(report.totalAssets);
   elements.balanceSheetTotalLiabilities.textContent = currencyFormatter.format(
     report.totalLiabilities,
   );
   elements.balanceSheetTotalEquity.textContent = currencyFormatter.format(report.totalEquity);
-  elements.balanceSheetDifference.textContent = currencyFormatter.format(report.difference);
-  elements.balanceSheetDifference.classList.toggle("negative", report.difference > 0.005);
-  elements.balanceSheetAssetsFigure.textContent = currencyFormatter.format(report.totalAssets);
-  elements.balanceSheetLiabilitiesEquityFigure.textContent = currencyFormatter.format(
-    report.totalLiabilities + report.totalEquity,
-  );
-  elements.balanceSheetBadge.textContent = report.isBalanced ? "BALANCED" : "NOT BALANCED";
-  elements.balanceSheetBadge.classList.toggle("is-balanced", report.isBalanced);
-  elements.balanceSheetBadge.classList.toggle("is-unbalanced", !report.isBalanced);
-
-  const summaryRows = [
-    ["Total Assets", report.totalAssets],
-    ["Total Liabilities", report.totalLiabilities],
-    ["Total Equity", report.totalEquity],
-    ["Total Liabilities + Equity", report.totalLiabilities + report.totalEquity],
-    ["Balance Difference", report.difference],
-  ];
-
-  summaryRows.forEach(([label, value]) => {
-    const row = document.createElement("tr");
-    safeSetInnerHTML(
-      row,
-      `
-        <td>${escapeHtml(label)}</td>
-        <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
-      `,
-    );
-    elements.balanceSheetSummaryBody.appendChild(row);
-  });
+  elements.balanceSheetBadge.textContent = report.isBalanced ? "✓ Balanced" : "Not Balanced";
+  elements.balanceSheetBadge.className = `badge ${report.isBalanced ? "badge-green" : "badge-red"}`;
 
   elements.balanceSheetCheckStatus.textContent = report.isBalanced
     ? "Balance check confirmed: Total Assets equals Total Liabilities plus Equity."
@@ -5008,7 +4991,6 @@ function renderCashFlowStatement() {
   safeSetInnerHTML(elements.cashFlowOperatingList, "");
   safeSetInnerHTML(elements.cashFlowInvestingList, "");
   safeSetInnerHTML(elements.cashFlowFinancingList, "");
-  safeSetInnerHTML(elements.cashFlowSummaryBody, "");
 
   const report = buildCashFlowStatementReport(getReportJournalEntries());
 
@@ -5025,63 +5007,44 @@ function renderCashFlowStatement() {
     elements.cashFlowEmptyState.classList.add("hidden");
   }
 
-  report.operatingItems.forEach((item) => {
-    elements.cashFlowOperatingList.appendChild(createStatementRow(item.label, item.amount));
+  renderFinancialSectionGroup({
+    container: elements.cashFlowOperatingList,
+    label: "Operating Activities",
+    sectionKey: "operating",
+    rows: report.operatingItems.map((item) => ({ account: { name: item.label }, amount: item.amount })),
+    subtotalLabel: "Net Operating Cash Flow",
+    subtotalAmount: report.operatingTotal,
+    stateBucket: state.cashFlowSections,
   });
-  report.investingItems.forEach((item) => {
-    elements.cashFlowInvestingList.appendChild(createStatementRow(item.label, item.amount));
+  renderFinancialSectionGroup({
+    container: elements.cashFlowInvestingList,
+    label: "Investing Activities",
+    sectionKey: "investing",
+    rows: report.investingItems.map((item) => ({ account: { name: item.label }, amount: item.amount })),
+    subtotalLabel: "Net Investing Cash Flow",
+    subtotalAmount: report.investingTotal,
+    stateBucket: state.cashFlowSections,
   });
-  report.financingItems.forEach((item) => {
-    elements.cashFlowFinancingList.appendChild(createStatementRow(item.label, item.amount));
+  renderFinancialSectionGroup({
+    container: elements.cashFlowFinancingList,
+    label: "Financing Activities",
+    sectionKey: "financing",
+    rows: report.financingItems.map((item) => ({ account: { name: item.label }, amount: item.amount })),
+    subtotalLabel: "Net Financing Cash Flow",
+    subtotalAmount: report.financingTotal,
+    stateBucket: state.cashFlowSections,
   });
 
-  renderSectionSubtotal(
-    elements.cashFlowOperatingSubtotal,
-    "Net Cash From Operating Activities",
-    report.operatingTotal,
-  );
-  renderSectionSubtotal(
-    elements.cashFlowInvestingSubtotal,
-    "Net Cash From Investing Activities",
-    report.investingTotal,
-  );
-  renderSectionSubtotal(
-    elements.cashFlowFinancingSubtotal,
-    "Net Cash From Financing Activities",
-    report.financingTotal,
-  );
+  renderSectionSubtotal(elements.cashFlowOperatingSubtotal, "Net Operating Cash Flow", report.operatingTotal);
+  renderSectionSubtotal(elements.cashFlowInvestingSubtotal, "Net Investing Cash Flow", report.investingTotal);
+  renderSectionSubtotal(elements.cashFlowFinancingSubtotal, "Net Financing Cash Flow", report.financingTotal);
 
   elements.cashFlowOpeningCash.textContent = currencyFormatter.format(report.openingCash);
   elements.cashFlowNetMovement.textContent = currencyFormatter.format(report.netCashMovement);
   elements.cashFlowClosingCash.textContent = currencyFormatter.format(report.closingCash);
-  elements.cashFlowBalanceCheck.textContent = currencyFormatter.format(report.balanceCheck);
   elements.cashFlowNetMovement.classList.toggle("negative", report.netCashMovement < 0);
-  elements.cashFlowBalanceCheck.classList.toggle("negative", report.balanceCheck > 0.005);
-
-  const summaryRows = [
-    ["Opening Cash Balance", report.openingCash],
-    ["Net Cash From Operating Activities", report.operatingTotal],
-    ["Net Cash From Investing Activities", report.investingTotal],
-    ["Net Cash From Financing Activities", report.financingTotal],
-    ["Net Cash Movement", report.netCashMovement],
-    ["Closing Cash Balance", report.closingCash],
-  ];
-
-  summaryRows.forEach(([label, value]) => {
-    const row = document.createElement("tr");
-    safeSetInnerHTML(
-      row,
-      `
-        <td>${escapeHtml(label)}</td>
-        <td class="numeric">${escapeHtml(currencyFormatter.format(value))}</td>
-      `,
-    );
-    elements.cashFlowSummaryBody.appendChild(row);
-  });
-
-  elements.cashFlowStatus.textContent = "";
-  elements.cashFlowStatus.classList.add("hidden");
-  elements.cashFlowStatus.classList.remove("is-balanced", "is-unbalanced");
+  elements.cashFlowStatus.textContent = report.balanceCheck === 0 ? "✓ Reconciled" : "Not Reconciled";
+  elements.cashFlowStatus.className = `badge ${report.balanceCheck === 0 ? "badge-green" : "badge-red"}`;
 }
 
 function renderAssistant() {
@@ -5181,14 +5144,36 @@ function clearAssistantChat() {
 }
 
 function handleBalanceSheetToggle(event) {
-  const button = event.target.closest("[data-balance-toggle]");
+  const button = event.target.closest("[data-statement-toggle]");
   if (!button) {
     return;
   }
 
-  const sectionKey = button.dataset.balanceToggle;
+  const sectionKey = button.dataset.statementToggle;
   state.balanceSheetSections[sectionKey] = !state.balanceSheetSections[sectionKey];
   renderBalanceSheet();
+}
+
+function handleIncomeStatementToggle(event) {
+  const button = event.target.closest("[data-statement-toggle]");
+  if (!button) {
+    return;
+  }
+
+  const sectionKey = button.dataset.statementToggle;
+  state.incomeStatementSections[sectionKey] = !state.incomeStatementSections[sectionKey];
+  renderIncomeStatement();
+}
+
+function handleCashFlowToggle(event) {
+  const button = event.target.closest("[data-statement-toggle]");
+  if (!button) {
+    return;
+  }
+
+  const sectionKey = button.dataset.statementToggle;
+  state.cashFlowSections[sectionKey] = !state.cashFlowSections[sectionKey];
+  renderCashFlowStatement();
 }
 
 async function handleAccountTableAction(event) {
@@ -5497,7 +5482,6 @@ function addLineItemRow(line = createEmptyLineItem()) {
     <button class="line-remove-button" type="button">Remove</button>
   `,
   );
-  `);`
   elements.lineItemsList.appendChild(row);
   refreshJournalSummary();
 }
@@ -6280,38 +6264,15 @@ function classifyBalanceSheetSection(account) {
 }
 
 function renderBalanceSheetSectionGroup(container, label, sectionKey, rows) {
-  const section = document.createElement("section");
-  section.className = "balance-subsection";
-
-  const subtotal = rows.reduce((sum, row) => sum + row.amount, 0);
-  const expanded = state.balanceSheetSections[sectionKey];
-  safeSetInnerHTML(
-    section,
-    `
-    <button class="section-toggle" type="button" data-balance-toggle="${sectionKey}" aria-expanded="${expanded}">
-      <span>${escapeHtml(label)}</span>
-      <span>${escapeHtml(currencyFormatter.format(subtotal))} ${expanded ? "−" : "+"}</span>
-    </button>
-  `,
-  );
-
-  const body = document.createElement("div");
-  body.className = "balance-subsection-body";
-  body.classList.toggle("collapsed", !expanded);
-
-  if (rows.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "statement-row muted-row";
-    safeSetInnerHTML(empty, "<span class=\"statement-label\">No accounts</span><strong>-</strong>");
-    body.appendChild(empty);
-  } else {
-    rows.forEach((row) => {
-      body.appendChild(createStatementRow(row.account.name, row.amount));
-    });
-  }
-
-  container.appendChild(section);
-  container.appendChild(body);
+  renderFinancialSectionGroup({
+    container,
+    label,
+    sectionKey,
+    rows,
+    subtotalLabel: label,
+    subtotalAmount: rows.reduce((sum, row) => sum + row.amount, 0),
+    stateBucket: state.balanceSheetSections,
+  });
 }
 
 function getAssistantAnalysisJournalEntries() {
@@ -6767,12 +6728,15 @@ function buildAssistantFinancialContext() {
 
 function createStatementRow(label, amount) {
   const row = document.createElement("div");
-  row.className = "statement-row";
+  row.className = "fs-row";
+  if (amount < 0) {
+    row.classList.add("negative");
+  }
   safeSetInnerHTML(
     row,
     `
-      <span class="statement-label">${escapeHtml(label)}</span>
-      <strong>${escapeHtml(currencyFormatter.format(amount))}</strong>
+      <span class="fs-label">${escapeHtml(label)}</span>
+      <strong class="fs-amount">${escapeHtml(currencyFormatter.format(amount))}</strong>
     `,
   );
   return row;
@@ -6793,9 +6757,73 @@ function renderSectionSubtotal(element, label, amount) {
     element,
     `
       <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(currencyFormatter.format(amount))}</strong>
+      <strong class="${amount < 0 ? "negative" : ""}">${escapeHtml(currencyFormatter.format(amount))}</strong>
     `,
   );
+}
+
+function renderFinancialSectionGroup({
+  container,
+  label,
+  sectionKey,
+  rows,
+  subtotalLabel,
+  subtotalAmount,
+  stateBucket,
+}) {
+  const expanded = stateBucket[sectionKey];
+  const section = document.createElement("section");
+  section.className = "statement-section-group";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "statement-section-toggle";
+  toggle.dataset.statementToggle = sectionKey;
+  toggle.setAttribute("aria-expanded", String(expanded));
+  safeSetInnerHTML(
+    toggle,
+    `
+      <span class="fs-section-header">${expanded ? "▼" : "▶"} ${escapeHtml(label)}</span>
+    `,
+  );
+  section.appendChild(toggle);
+
+  const body = document.createElement("div");
+  body.className = "statement-section-body";
+  body.classList.toggle("hidden", !expanded);
+
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "fs-row";
+    safeSetInnerHTML(
+      empty,
+      `
+        <span class="fs-label">No line items</span>
+        <strong class="fs-amount">-</strong>
+      `,
+    );
+    body.appendChild(empty);
+  } else {
+    rows.forEach((row) => {
+      const statementRow = createStatementRow(row.account.name, row.amount);
+      statementRow.style.paddingLeft = "12px";
+      body.appendChild(statementRow);
+    });
+  }
+
+  const subtotal = document.createElement("div");
+  subtotal.className = "fs-subtotal";
+  safeSetInnerHTML(
+    subtotal,
+    `
+      <span>${escapeHtml(subtotalLabel)}</span>
+      <strong class="${subtotalAmount < 0 ? "negative" : ""}">${escapeHtml(currencyFormatter.format(subtotalAmount))}</strong>
+    `,
+  );
+
+  section.appendChild(body);
+  section.appendChild(subtotal);
+  container.appendChild(section);
 }
 
 function buildAccountOptions(selectedId = "") {
@@ -6856,11 +6884,18 @@ function formatLongDate(value) {
     return "";
   }
 
+  const normalizedDate =
+    value instanceof Date
+      ? value
+      : /^\d{4}-\d{2}-\d{2}$/.test(String(value))
+        ? new Date(`${value}T00:00:00`)
+        : new Date(value);
+
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
+  }).format(normalizedDate);
 }
 
 function getTodayDate() {
