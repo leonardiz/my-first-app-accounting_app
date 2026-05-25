@@ -1012,16 +1012,13 @@
 
           <section class="panel table-panel" id="trial-balance-section">
             <div class="table-wrapper">
-              <table>
+              <table class="trial-balance-table">
                 <thead>
                   <tr>
                     <th>Code</th>
                     <th>Account Name</th>
-                    <th>Type</th>
-                    <th class="numeric">Total Debits</th>
-                    <th class="numeric">Total Credits</th>
-                    <th class="numeric">Closing Debit</th>
-                    <th class="numeric">Closing Credit</th>
+                    <th class="numeric">Debit</th>
+                    <th class="numeric">Credit</th>
                   </tr>
                 </thead>
                 <tbody id="trial-balance-table-body"></tbody>
@@ -1083,7 +1080,7 @@
                   <strong class="kpi-value" id="income-total-revenue">$0.00</strong>
                 </div>
                 <div class="kpi-card red">
-                  <span class="kpi-label">Total Expenses</span>
+                  <span class="kpi-label">Operating Expenses</span>
                   <strong class="kpi-value" id="income-operating-expenses">$0.00</strong>
                 </div>
                 <div class="kpi-card teal">
@@ -1095,14 +1092,7 @@
 
               <section class="section-card statement-report-card">
                 <div class="section-card-body">
-                  <div class="statement-report-grid">
-                    <div id="income-revenue-list" class="statement-list"></div>
-                    <div id="income-expense-list" class="statement-list"></div>
-                  </div>
-                  <div class="fs-total" id="income-summary-total">
-                    <span>Net Income</span>
-                    <strong id="income-gross-profit">$0.00</strong>
-                  </div>
+                  <div id="income-statement-list" class="income-statement-list"></div>
                   <div class="empty-state hidden" id="income-statement-empty-state">
                     <h3>No income statement data yet</h3>
                     <p>Add revenue or expense accounts and post activity to generate this statement.</p>
@@ -1177,7 +1167,7 @@
                     <div id="balance-sheet-liabilities-list" class="statement-list"></div>
                     <div id="balance-sheet-equity-list" class="statement-list"></div>
                   </div>
-                  <div class="fs-total" id="balance-sheet-assets-subtotal">
+                  <div class="fs-total fs-total--dark" id="balance-sheet-assets-subtotal">
                     <span>Total Assets</span>
                     <strong id="balance-sheet-assets-figure">$0.00</strong>
                   </div>
@@ -1276,6 +1266,7 @@
                     <span>Net Financing Cash Flow</span>
                     <strong>&nbsp;</strong>
                   </div>
+                  <div class="report-status" id="cash-flow-reconciliation-status"></div>
                   <div class="empty-state hidden" id="cash-flow-empty-state">
                     <h3>No cash flow data yet</h3>
                     <p>Add cash-related accounts and post activity to generate the cash flow statement.</p>

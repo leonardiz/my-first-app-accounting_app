@@ -344,12 +344,10 @@ const elements = {
   printIncomeStatementButton: document.querySelector("#print-income-statement-button"),
   incomeStatementSection: document.querySelector("#income-statement-section"),
   incomeTotalRevenue: document.querySelector("#income-total-revenue"),
-  incomeGrossProfit: document.querySelector("#income-gross-profit"),
   incomeOperatingExpenses: document.querySelector("#income-operating-expenses"),
   incomeNetIncome: document.querySelector("#income-net-income"),
   incomeStatusBadge: document.querySelector("#income-status-badge"),
-  incomeRevenueList: document.querySelector("#income-revenue-list"),
-  incomeExpenseList: document.querySelector("#income-expense-list"),
+  incomeStatementList: document.querySelector("#income-statement-list"),
   incomeStatementEmptyState: document.querySelector("#income-statement-empty-state"),
   printBalanceSheetButton: document.querySelector("#print-balance-sheet-button"),
   balanceSheetSection: document.querySelector("#balance-sheet-section"),
@@ -381,6 +379,7 @@ const elements = {
   cashFlowInvestingSubtotal: document.querySelector("#cash-flow-investing-subtotal"),
   cashFlowFinancingSubtotal: document.querySelector("#cash-flow-financing-subtotal"),
   cashFlowStatus: document.querySelector("#cash-flow-status"),
+  cashFlowReconciliationStatus: document.querySelector("#cash-flow-reconciliation-status"),
   cashFlowEmptyState: document.querySelector("#cash-flow-empty-state"),
   printCashFlowButton: document.querySelector("#print-cash-flow-button"),
   cashFlowSection: document.querySelector("#cash-flow-section"),
@@ -546,8 +545,7 @@ elements.navItems.forEach((item) =>
 elements.balanceSheetAssetsList.addEventListener("click", handleBalanceSheetToggle);
 elements.balanceSheetLiabilitiesList.addEventListener("click", handleBalanceSheetToggle);
 elements.balanceSheetEquityList.addEventListener("click", handleBalanceSheetToggle);
-elements.incomeRevenueList.addEventListener("click", handleIncomeStatementToggle);
-elements.incomeExpenseList.addEventListener("click", handleIncomeStatementToggle);
+elements.incomeStatementList?.addEventListener("click", handleIncomeStatementToggle);
 elements.cashFlowOperatingList.addEventListener("click", handleCashFlowToggle);
 elements.cashFlowInvestingList.addEventListener("click", handleCashFlowToggle);
 elements.cashFlowFinancingList.addEventListener("click", handleCashFlowToggle);
@@ -3218,10 +3216,9 @@ function buildPrintableReport(reportKey) {
       periodLabel: period.label,
       filenameDate: period.filenameDate,
       summaryHtml: buildPrintableSummaryGrid([
-        { label: "Total Debits", value: currencyFormatter.format(report.totalDebits) },
-        { label: "Total Credits", value: currencyFormatter.format(report.totalCredits) },
-        { label: "Closing Debits", value: currencyFormatter.format(report.totalClosingDebits) },
-        { label: "Closing Credits", value: currencyFormatter.format(report.totalClosingCredits) },
+        { label: "Total Debits", value: formatStatementCurrency(report.totalDebits) },
+        { label: "Total Credits", value: formatStatementCurrency(report.totalCredits) },
+        { label: "Status", value: report.totalsBalanced ? "Balanced" : "Not Balanced" },
       ]),
       bodyHtml: buildPrintableTrialBalanceBody(report),
     };
@@ -3233,12 +3230,7 @@ function buildPrintableReport(reportKey) {
       title: "Income Statement",
       periodLabel: period.label,
       filenameDate: period.filenameDate,
-      summaryHtml: buildPrintableSummaryGrid([
-        { label: "Revenue", value: currencyFormatter.format(report.totalRevenue) },
-        { label: "Gross Profit", value: currencyFormatter.format(report.grossProfit) },
-        { label: "Operating Expenses", value: currencyFormatter.format(report.operatingExpenses) },
-        { label: "Net Income", value: currencyFormatter.format(report.netIncome) },
-      ]),
+      summaryHtml: "",
       bodyHtml: buildPrintableIncomeStatementBody(report),
     };
   }
@@ -3439,6 +3431,7 @@ function buildPrintableReportDocument(report, filename) {
           .report-table td.numeric, .report-table th.numeric {
             text-align: right;
             white-space: nowrap;
+            font-variant-numeric: tabular-nums;
           }
           .report-table tr.total-row td {
             font-weight: 800;
@@ -3452,6 +3445,38 @@ function buildPrintableReportDocument(report, filename) {
           .report-section-stack {
             display: grid;
             gap: 14px;
+          }
+          .income-statement-print-table .statement-section-label td {
+            padding: 14px 12px 6px;
+            border-bottom: 0;
+            color: #6b7280;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+          }
+          .income-statement-print-table .statement-line-item td {
+            padding: 8px 12px;
+            font-size: 10px;
+            font-weight: 400;
+          }
+          .income-statement-print-table .statement-subtotal td {
+            padding: 10px 12px;
+            font-size: 10px;
+            font-weight: 700;
+            background: #f1f5f9;
+          }
+          .income-statement-print-table .statement-metric td {
+            padding: 10px 12px;
+            font-size: 10px;
+            font-weight: 700;
+          }
+          .income-statement-print-table .statement-grand-total td {
+            padding: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #ffffff;
+            background: #0f172a;
           }
           .print-footer {
             position: fixed;
@@ -3569,11 +3594,8 @@ function buildPrintableTrialBalanceBody(report) {
           <tr>
             <th>Code</th>
             <th>Account Name</th>
-            <th>Type</th>
-            <th class="numeric">Total Debits</th>
-            <th class="numeric">Total Credits</th>
-            <th class="numeric">Closing Debit</th>
-            <th class="numeric">Closing Credit</th>
+            <th class="numeric">Debit</th>
+            <th class="numeric">Credit</th>
           </tr>
         </thead>
         <tbody>
@@ -3585,23 +3607,18 @@ function buildPrintableTrialBalanceBody(report) {
                       <tr>
                         <td>${escapeHtml(row.account.code)}</td>
                         <td>${escapeHtml(row.account.name)}</td>
-                        <td>${escapeHtml(row.account.type)}</td>
-                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.totalDebits))}</td>
-                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.totalCredits))}</td>
-                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.closingDebit))}</td>
-                        <td class="numeric">${escapeHtml(currencyFormatter.format(row.closingCredit))}</td>
+                        <td class="numeric">${escapeHtml(row.debit > 0 ? formatStatementCurrency(row.debit) : "-")}</td>
+                        <td class="numeric">${escapeHtml(row.credit > 0 ? formatStatementCurrency(row.credit) : "-")}</td>
                       </tr>
                     `,
                   )
                   .join("")
-              : '<tr><td colspan="7">No trial balance data available for this company.</td></tr>'
+              : '<tr><td colspan="4">No trial balance data available for this company.</td></tr>'
           }
           <tr class="total-row">
-            <td colspan="3">Totals</td>
-            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalDebits))}</td>
-            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalCredits))}</td>
-            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingDebits))}</td>
-            <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingCredits))}</td>
+            <td colspan="2">Totals</td>
+            <td class="numeric">${escapeHtml(formatStatementCurrency(report.totalDebits))}</td>
+            <td class="numeric">${escapeHtml(formatStatementCurrency(report.totalCredits))}</td>
           </tr>
         </tbody>
       </table>
@@ -3614,23 +3631,35 @@ function buildPrintableIncomeStatementBody(report) {
     <section class="print-section">
       <h3>Income Statement</h3>
       <div class="report-section-stack">
-        ${buildPrintableSectionTable("Revenue", report.revenueAccounts, "Revenue Total", report.totalRevenue)}
-        ${buildPrintableSectionTable("Operating Expenses", report.expenseAccounts, "Operating Expenses Total", report.operatingExpenses)}
-        <table class="report-table">
+        <table class="report-table income-statement-print-table">
           <tbody>
-            <tr class="total-row">
-              <td>Gross Profit</td>
-              <td class="numeric">${escapeHtml(currencyFormatter.format(report.grossProfit))}</td>
-            </tr>
-            <tr class="total-row">
-              <td>Net Income / Loss</td>
-              <td class="numeric">${escapeHtml(currencyFormatter.format(report.netIncome))}</td>
-            </tr>
+            ${buildPrintableIncomeStatementRows(report)}
           </tbody>
         </table>
       </div>
     </section>
   `;
+}
+
+function buildPrintableIncomeStatementRows(report) {
+  return buildIncomeStatementLayoutRows(report)
+    .map((row) => {
+      if (row.type === "section-header") {
+        return `
+          <tr class="statement-section-label">
+            <td colspan="2">${escapeHtml(row.label)}</td>
+          </tr>
+        `;
+      }
+
+      return `
+        <tr class="statement-${escapeHtml(row.type)}">
+          <td>${escapeHtml(row.label)}</td>
+          <td class="numeric">${escapeHtml(formatStatementCurrency(row.amount))}</td>
+        </tr>
+      `;
+    })
+    .join("");
 }
 
 function buildPrintableBalanceSheetBody(report) {
@@ -3725,7 +3754,7 @@ function buildPrintableLedgerBody(ledgers) {
                     )
                     .join("")}
                   <tr class="total-row">
-                    <td colspan="4">Closing Balance</td>
+                    <td colspan="4">Account Total</td>
                     <td class="numeric">${escapeHtml(formatLedgerBalance(ledger.closingBalance, ledger.account.type))}</td>
                   </tr>
                 </tbody>
@@ -3824,7 +3853,17 @@ function exportSectionToPdf(reportKey) {
   }
 
   const jsPDFConstructor = window.jspdf?.jsPDF;
-  if (typeof jsPDFConstructor !== "function" || typeof jsPDFConstructor.API?.autoTable !== "function") {
+  if (typeof jsPDFConstructor !== "function") {
+    showToast("PDF export library failed to load. Refresh and try again.", "error");
+    return;
+  }
+
+  if (report.format === "income-statement") {
+    exportIncomeStatementPdfReport(jsPDFConstructor, report);
+    return;
+  }
+
+  if (typeof jsPDFConstructor.API?.autoTable !== "function") {
     showToast("PDF export library failed to load. Refresh and try again.", "error");
     return;
   }
@@ -3928,46 +3967,36 @@ function drawPdfDocumentHeader(doc, { context, title, periodLabel }) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 40;
   const centerX = pageWidth / 2;
-  const rightColumnWidth = 220;
-  const companyNameLines = doc.splitTextToSize(context.companyName, rightColumnWidth);
-  const addressLines = doc.splitTextToSize(context.companyAddress || "Address not specified", rightColumnWidth);
-  const periodLines = doc.splitTextToSize(periodLabel, pageWidth - marginX * 2);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor(15, 118, 110);
-  doc.text(appDisplayName, marginX, 40);
+  const contentWidth = pageWidth - marginX * 2;
+  const companyNameLines = doc.splitTextToSize(context.companyName, contentWidth);
+  const periodLines = doc.splitTextToSize(periodLabel, contentWidth);
+  const generatedLabel = `Generated: ${context.generatedDate}`;
+  const titleY = 44 + companyNameLines.length * 14;
+  const periodY = titleY + 20;
+  const generatedY = periodY + periodLines.length * 12 + 2;
+  const dividerY = generatedY + 14;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
   doc.setTextColor(15, 23, 42);
-  doc.text(companyNameLines, pageWidth - marginX, 40, { align: "right" });
+  doc.text(companyNameLines, centerX, 44, { align: "center" });
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(100, 116, 139);
-  doc.text(addressLines, pageWidth - marginX, 56 + Math.max(0, companyNameLines.length - 1) * 12, {
-    align: "right",
-  });
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
+  doc.setFontSize(14);
   doc.setTextColor(15, 23, 42);
-  doc.text(title, centerX, 102, { align: "center" });
+  doc.text(title, centerX, titleY, { align: "center" });
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text(periodLines, centerX, 120, { align: "center" });
-  doc.text(`Generated: ${context.generatedDate}`, centerX, 120 + periodLines.length * 12 + 10, {
-    align: "center",
-  });
+  doc.setFontSize(11);
+  doc.setTextColor(107, 114, 128);
+  doc.text(periodLines, centerX, periodY, { align: "center" });
+  doc.text(generatedLabel, centerX, generatedY, { align: "center" });
 
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.8);
-  doc.line(marginX, 156 + periodLines.length * 8, pageWidth - marginX, 156 + periodLines.length * 8);
+  doc.line(marginX, dividerY, pageWidth - marginX, dividerY);
 
-  return 178 + periodLines.length * 8;
+  return dividerY + 14;
 }
 
 function ensurePdfSectionSpace(doc, cursorY, sectionHeight = 80) {
@@ -4015,6 +4044,113 @@ function drawPdfSummaryBox(doc, startY, summaryBox) {
     doc.text(row.value, pageWidth - marginX - 16, rowY, { align: "right" });
   });
   return cursorY + boxHeight + 20;
+}
+
+function exportIncomeStatementPdfReport(jsPDFConstructor, report) {
+  const context = getPdfDocumentContext();
+  const doc = new jsPDFConstructor({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+    compress: true,
+  });
+  const filename = buildPdfFilename(report.title, report.filenameDate);
+  let cursorY = drawPdfDocumentHeader(doc, {
+    context,
+    title: report.title,
+    periodLabel: report.periodLabel,
+  });
+
+  doc.setProperties({
+    title: report.title,
+    subject: `${report.title} generated by ${appDisplayName}`,
+    author: appDisplayName,
+    creator: appDisplayName,
+  });
+
+  buildIncomeStatementLayoutRows(report.statement).forEach((row) => {
+    cursorY = ensureIncomeStatementPdfRowSpace(doc, cursorY, row.type);
+    cursorY = drawIncomeStatementPdfRow(doc, cursorY, row);
+  });
+
+  finalizePdfPages(doc);
+  doc.save(filename);
+}
+
+function getIncomeStatementPdfRowHeight(rowType) {
+  if (rowType === "section-header") {
+    return 20;
+  }
+
+  if (rowType === "grand-total") {
+    return 28;
+  }
+
+  if (rowType === "subtotal") {
+    return 22;
+  }
+
+  if (rowType === "metric") {
+    return 20;
+  }
+
+  return 18;
+}
+
+function ensureIncomeStatementPdfRowSpace(doc, cursorY, rowType) {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const rowHeight = getIncomeStatementPdfRowHeight(rowType);
+  if (cursorY + rowHeight <= pageHeight - 56) {
+    return cursorY;
+  }
+
+  doc.addPage();
+  return 40;
+}
+
+function drawIncomeStatementPdfRow(doc, cursorY, row) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 40;
+  const rowWidth = pageWidth - marginX * 2;
+  const rowHeight = getIncomeStatementPdfRowHeight(row.type);
+  const labelX = marginX + 12;
+  const amountX = pageWidth - marginX - 12;
+
+  if (row.type === "section-header") {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(107, 114, 128);
+    doc.text(row.label.toUpperCase(), labelX, cursorY + 14);
+    return cursorY + rowHeight;
+  }
+
+  if (row.type === "subtotal") {
+    doc.setFillColor(241, 245, 249);
+    doc.rect(marginX, cursorY, rowWidth, rowHeight, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+  } else if (row.type === "metric") {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+  } else if (row.type === "grand-total") {
+    doc.setFillColor(15, 23, 42);
+    doc.rect(marginX, cursorY, rowWidth, rowHeight, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+  } else {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(31, 41, 55);
+  }
+
+  const baselineY = cursorY + (row.type === "grand-total" ? 18 : 14);
+  doc.text(row.label, labelX, baselineY);
+  doc.text(formatStatementCurrency(row.amount), amountX, baselineY, { align: "right" });
+
+  return cursorY + rowHeight;
 }
 
 function finalizePdfPages(doc) {
@@ -4065,47 +4201,18 @@ function buildPdfReport(reportKey) {
       title: "Trial Balance",
       periodLabel: period.label,
       filenameDate: period.filenameDate,
-      summaryBox: {
-        eyebrow: report.closingBalanced ? "Closing Balances" : "Closing Balance Check",
-        primaryValue: report.closingBalanced ? "Balanced" : formatPdfCurrency(Math.abs(report.totalClosingDebits - report.totalClosingCredits)),
-        detailRows: [
-          { label: "Total Debits", value: formatPdfCurrency(report.totalDebits) },
-          { label: "Total Credits", value: formatPdfCurrency(report.totalCredits) },
-          { label: "Closing Debits", value: formatPdfCurrency(report.totalClosingDebits) },
-          { label: "Closing Credits", value: formatPdfCurrency(report.totalClosingCredits) },
-        ],
-      },
       tables: [
         {
           title: "Trial Balance",
-          columns: [
-            "Code",
-            "Account Name",
-            "Type",
-            "Total Debits",
-            "Total Credits",
-            "Closing Debit",
-            "Closing Credit",
-          ],
+          columns: ["Code", "Account Name", "Debit", "Credit"],
           rows: report.rows.map((row) => [
             row.account.code,
             row.account.name,
-            row.account.type,
-            formatPdfCurrency(row.totalDebits),
-            formatPdfCurrency(row.totalCredits),
-            row.closingDebit > 0 ? formatPdfCurrency(row.closingDebit) : "-",
-            row.closingCredit > 0 ? formatPdfCurrency(row.closingCredit) : "-",
+            row.debit > 0 ? formatPdfCurrency(row.debit) : "-",
+            row.credit > 0 ? formatPdfCurrency(row.credit) : "-",
           ]),
-          footer: [
-            "Totals",
-            "",
-            "",
-            formatPdfCurrency(report.totalDebits),
-            formatPdfCurrency(report.totalCredits),
-            formatPdfCurrency(report.totalClosingDebits),
-            formatPdfCurrency(report.totalClosingCredits),
-          ],
-          columnStyles: buildNumericColumnStyles([3, 4, 5, 6]),
+          footer: ["Total", "", formatPdfCurrency(report.totalDebits), formatPdfCurrency(report.totalCredits)],
+          columnStyles: buildNumericColumnStyles([2, 3]),
         },
       ],
     };
@@ -4117,35 +4224,8 @@ function buildPdfReport(reportKey) {
       title: "Income Statement",
       periodLabel: period.label,
       filenameDate: period.filenameDate,
-      summaryBox: {
-        eyebrow: report.netIncome >= 0 ? "Net Income" : "Net Loss",
-        primaryValue: formatPdfCurrency(report.netIncome),
-        detailRows: [
-          { label: "Revenue", value: formatPdfCurrency(report.totalRevenue) },
-          { label: "Gross Profit", value: formatPdfCurrency(report.grossProfit) },
-          { label: "Operating Expenses", value: formatPdfCurrency(report.operatingExpenses) },
-        ],
-      },
-      tables: [
-        buildPdfAmountTable("Revenue", report.revenueAccounts, "Revenue Total", report.totalRevenue),
-        buildPdfAmountTable(
-          "Operating Expenses",
-          report.expenseAccounts,
-          "Operating Expenses Total",
-          report.operatingExpenses,
-        ),
-        {
-          title: "Income Statement Summary",
-          columns: ["Metric", "Amount"],
-          rows: [
-            ["Total Revenue", formatPdfCurrency(report.totalRevenue)],
-            ["Gross Profit", formatPdfCurrency(report.grossProfit)],
-            ["Operating Expenses", formatPdfCurrency(report.operatingExpenses)],
-            [report.netIncome >= 0 ? "Net Income" : "Net Loss", formatPdfCurrency(report.netIncome)],
-          ],
-          columnStyles: buildNumericColumnStyles([1]),
-        },
-      ],
+      format: "income-statement",
+      statement: report,
     };
   }
 
@@ -4155,16 +4235,6 @@ function buildPdfReport(reportKey) {
       title: "Balance Sheet",
       periodLabel: period.label,
       filenameDate: period.filenameDate,
-      summaryBox: {
-        eyebrow: "Total Assets",
-        primaryValue: formatPdfCurrency(report.totalAssets),
-        detailRows: [
-          { label: "Total Liabilities", value: formatPdfCurrency(report.totalLiabilities) },
-          { label: "Total Equity", value: formatPdfCurrency(report.totalEquity) },
-          { label: "Liabilities + Equity", value: formatPdfCurrency(report.totalLiabilities + report.totalEquity) },
-          { label: "Status", value: report.isBalanced ? "Balanced" : "Not Balanced" },
-        ],
-      },
       tables: [
         buildPdfBalanceSheetSectionTable("Current Assets", "currentAssets", report.currentAssetAccounts),
         buildPdfBalanceSheetSectionTable("Non-Current Assets", "nonCurrentAssets", report.nonCurrentAssetAccounts),
@@ -4186,7 +4256,7 @@ function buildPdfReport(reportKey) {
           ],
         ),
         {
-          title: "Balance Sheet Summary",
+          title: "Balance Check",
           columns: ["Metric", "Amount"],
           rows: [
             ["Total Assets", formatPdfCurrency(report.totalAssets)],
@@ -4194,10 +4264,9 @@ function buildPdfReport(reportKey) {
             ["Total Equity", formatPdfCurrency(report.totalEquity)],
             [
               "Total Liabilities + Equity",
-              formatPdfCurrency(report.totalLiabilities + report.totalEquity),
+              formatPdfCurrency(report.totalLiabilitiesAndEquity),
             ],
-            ["Balance Difference", formatPdfCurrency(report.difference)],
-            ["Status", report.isBalanced ? "Balanced" : "Not Balanced"],
+            ["Status", report.isBalanced ? "\u2713 Balanced" : "Not Balanced"],
           ],
           columnStyles: buildNumericColumnStyles([1]),
         },
@@ -4211,16 +4280,6 @@ function buildPdfReport(reportKey) {
       title: "Cash Flow Statement",
       periodLabel: period.label,
       filenameDate: period.filenameDate,
-      summaryBox: {
-        eyebrow: "Closing Cash Balance",
-        primaryValue: formatPdfCurrency(report.closingCash),
-        detailRows: [
-          { label: "Opening Cash", value: formatPdfCurrency(report.openingCash) },
-          { label: "Net Cash Movement", value: formatPdfCurrency(report.netCashMovement) },
-          { label: "Operating Cash Flow", value: formatPdfCurrency(report.operatingTotal) },
-          { label: "Balance Check", value: formatPdfCurrency(report.balanceCheck) },
-        ],
-      },
       tables: [
         buildPdfLineItemTable(
           "Operating Activities",
@@ -4241,16 +4300,13 @@ function buildPdfReport(reportKey) {
           report.financingTotal,
         ),
         {
-          title: "Cash Flow Summary",
+          title: "Reconciliation",
           columns: ["Metric", "Amount"],
           rows: [
             ["Opening Cash Balance", formatPdfCurrency(report.openingCash)],
-            ["Net Cash From Operating Activities", formatPdfCurrency(report.operatingTotal)],
-            ["Net Cash From Investing Activities", formatPdfCurrency(report.investingTotal)],
-            ["Net Cash From Financing Activities", formatPdfCurrency(report.financingTotal)],
             ["Net Cash Movement", formatPdfCurrency(report.netCashMovement)],
             ["Closing Cash Balance", formatPdfCurrency(report.closingCash)],
-            ["Balance Check", formatPdfCurrency(report.balanceCheck)],
+            ["Status", report.balanceCheck === 0 ? "\u2713 Reconciled" : "Not Reconciled"],
           ],
           columnStyles: buildNumericColumnStyles([1]),
         },
@@ -4262,23 +4318,13 @@ function buildPdfReport(reportKey) {
     const ledgers = buildGeneralLedger(filteredEntries).filter(
       (ledger) => ledger.lines.length > 1 || Math.abs(ledger.openingBalance) >= 0.005,
     );
-    const postedLines = ledgers.reduce((sum, ledger) => sum + ledger.lines.length, 0);
     return {
       title: "General Ledger",
       periodLabel: period.label,
       filenameDate: period.filenameDate,
-      summaryBox: {
-        eyebrow: "Ledger Coverage",
-        primaryValue: String(ledgers.length),
-        detailRows: [
-          { label: "Accounts Included", value: String(ledgers.length) },
-          { label: "Posted Lines", value: String(postedLines) },
-          { label: "Date Range", value: period.label.replace(/^For the period:\s*/, "") },
-        ],
-      },
       tables: ledgers.length
         ? ledgers.map((ledger) => ({
-            title: `${ledger.account.code} - ${ledger.account.name}`,
+            title: `${ledger.account.code} - ${ledger.account.name} | Opening ${formatLedgerBalance(ledger.openingBalance, ledger.account.type)}`,
             columns: ["Date", "Description", "Debit", "Credit", "Running Balance"],
             rows: ledger.lines.map((line) => [
               line.date,
@@ -4287,7 +4333,7 @@ function buildPdfReport(reportKey) {
               line.credit > 0 ? formatPdfCurrency(line.credit) : "-",
               formatLedgerBalance(line.runningBalance, ledger.account.type),
             ]),
-            footer: ["", "Closing Balance", "", "", formatLedgerBalance(ledger.closingBalance, ledger.account.type)],
+            footer: ["", "Account Total", "", "", formatLedgerBalance(ledger.closingBalance, ledger.account.type)],
             columnStyles: buildNumericColumnStyles([2, 3, 4]),
           }))
         : [
@@ -4319,7 +4365,7 @@ function getPdfDocumentContext() {
 }
 
 function formatPdfCurrency(value) {
-  return currencyFormatter.format(Number(value) || 0);
+  return formatStatementCurrency(value);
 }
 
 function buildNumericColumnStyles(columnIndexes) {
@@ -4370,16 +4416,13 @@ function buildPdfLineItemTable(title, rows, totalLabel, totalAmount) {
 function buildPdfBalanceSheetSectionTable(title, sectionKey, rows) {
   const sectionRows = Array.isArray(rows) ? rows : [];
   const subtotal = sectionRows.reduce((sum, row) => sum + (row.amount || 0), 0);
-  const expanded = Boolean(state.balanceSheetSections[sectionKey]);
 
   return {
-    title: expanded ? title : `${title} (Collapsed in workspace)`,
+    title,
     columns: ["Account", "Amount"],
-    rows: expanded
-      ? sectionRows.length
-        ? sectionRows.map((row) => [row.account?.name || "Untitled", formatPdfCurrency(row.amount || 0)])
-        : []
-      : [["Section subtotal only is visible on screen.", formatPdfCurrency(subtotal)]],
+    rows: sectionRows.length
+      ? sectionRows.map((row) => [row.account?.name || "Untitled", formatPdfCurrency(row.amount || 0)])
+      : [],
     footer: [`${title} Total`, formatPdfCurrency(subtotal)],
     columnStyles: buildNumericColumnStyles([1]),
   };
@@ -4778,7 +4821,7 @@ function renderGeneralLedger() {
           ${ledger.lines.length > 1 ? `${ledger.lines.length - 1} posted transactions` : "No posted transactions"}
         </div>
         <div class="numeric">
-          <p>Closing Balance</p>
+          <p>Account Total</p>
           <strong>${escapeHtml(formatLedgerBalance(ledger.closingBalance, ledger.account.type))}</strong>
         </div>
       </div>
@@ -4793,9 +4836,7 @@ function renderTrialBalance() {
   safeSetInnerHTML(elements.trialBalanceTableFoot, "");
 
   const report = buildTrialBalanceReport(getReportJournalEntries());
-  const hasReportData = report.rows.some((row) => {
-    return row.totalDebits > 0 || row.totalCredits > 0 || row.closingDebit > 0 || row.closingCredit > 0;
-  });
+  const hasReportData = report.rows.some((row) => row.debit > 0 || row.credit > 0);
 
   if (state.accounts.length === 0) {
     elements.trialBalanceEmptyState.classList.remove("hidden");
@@ -4823,11 +4864,8 @@ function renderTrialBalance() {
       `
       <td>${escapeHtml(row.account.code)}</td>
       <td>${escapeHtml(row.account.name)}</td>
-      <td>${escapeHtml(row.account.type)}</td>
-      <td class="numeric">${escapeHtml(currencyFormatter.format(row.totalDebits))}</td>
-      <td class="numeric">${escapeHtml(currencyFormatter.format(row.totalCredits))}</td>
-      <td class="numeric">${escapeHtml(row.closingDebit > 0 ? currencyFormatter.format(row.closingDebit) : "-")}</td>
-      <td class="numeric">${escapeHtml(row.closingCredit > 0 ? currencyFormatter.format(row.closingCredit) : "-")}</td>
+      <td class="numeric">${escapeHtml(row.debit > 0 ? formatStatementCurrency(row.debit) : "-")}</td>
+      <td class="numeric">${escapeHtml(row.credit > 0 ? formatStatementCurrency(row.credit) : "-")}</td>
     `,
     );
     elements.trialBalanceTableBody.appendChild(tableRow);
@@ -4837,11 +4875,9 @@ function renderTrialBalance() {
   safeSetInnerHTML(
     totalsRow,
     `
-    <td colspan="3">Grand Total</td>
-    <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalDebits))}</td>
-    <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalCredits))}</td>
-    <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingDebits))}</td>
-    <td class="numeric">${escapeHtml(currencyFormatter.format(report.totalClosingCredits))}</td>
+    <td colspan="2">Total</td>
+    <td class="numeric">${escapeHtml(formatStatementCurrency(report.totalDebits))}</td>
+    <td class="numeric">${escapeHtml(formatStatementCurrency(report.totalCredits))}</td>
   `,
   );
   elements.trialBalanceTableFoot.appendChild(totalsRow);
@@ -4850,10 +4886,12 @@ function renderTrialBalance() {
   safeSetInnerHTML(
     statusRow,
     `
-    <td colspan="7">
-      <div class="report-status">
-        Trial balance totals are ${report.totalsBalanced ? "balanced" : "not balanced"}.
-        Closing balances are ${report.closingBalanced ? "balanced" : "not balanced"}.
+    <td colspan="4">
+      <div class="report-status ${report.totalsBalanced ? "is-balanced" : "is-unbalanced"}">
+        Total Debits ${escapeHtml(formatStatementCurrency(report.totalDebits))} | Total Credits ${escapeHtml(formatStatementCurrency(report.totalCredits))}
+        <span class="badge ${report.totalsBalanced ? "badge-green" : "badge-red"}" style="margin-left:12px;">
+          ${report.totalsBalanced ? "\u2713 Balanced" : "Not Balanced"}
+        </span>
       </div>
     </td>
   `,
@@ -4862,12 +4900,17 @@ function renderTrialBalance() {
 }
 
 function renderIncomeStatement() {
-  safeSetInnerHTML(elements.incomeRevenueList, "");
-  safeSetInnerHTML(elements.incomeExpenseList, "");
+  safeSetInnerHTML(elements.incomeStatementList, "");
 
   const report = buildIncomeStatementReport(getReportJournalEntries());
 
-  if (report.revenueAccounts.length === 0 && report.expenseAccounts.length === 0) {
+  elements.incomeTotalRevenue.textContent = formatStatementCurrency(report.totalRevenue);
+  elements.incomeOperatingExpenses.textContent = formatStatementCurrency(report.operatingExpenses);
+  elements.incomeNetIncome.textContent = formatStatementCurrency(report.netIncome);
+  elements.incomeStatusBadge.textContent = report.netIncome >= 0 ? "Net Profit" : "Net Loss";
+  elements.incomeStatusBadge.className = `badge ${report.netIncome >= 0 ? "badge-green" : "badge-red"}`;
+
+  if (!report.hasActivity) {
     safeSetInnerHTML(
       elements.incomeStatementEmptyState,
       `
@@ -4876,35 +4919,14 @@ function renderIncomeStatement() {
       `,
     );
     elements.incomeStatementEmptyState.classList.remove("hidden");
-  } else {
-    elements.incomeStatementEmptyState.classList.add("hidden");
+    return;
   }
 
-  renderFinancialSectionGroup({
-    container: elements.incomeRevenueList,
-    label: "Revenue",
-    sectionKey: "revenue",
-    rows: report.revenueAccounts,
-    subtotalLabel: "Total Revenue",
-    subtotalAmount: report.totalRevenue,
-    stateBucket: state.incomeStatementSections,
-  });
-  renderFinancialSectionGroup({
-    container: elements.incomeExpenseList,
-    label: "Expenses",
-    sectionKey: "expenses",
-    rows: report.expenseAccounts,
-    subtotalLabel: "Total Expenses",
-    subtotalAmount: report.operatingExpenses,
-    stateBucket: state.incomeStatementSections,
-  });
+  elements.incomeStatementEmptyState.classList.add("hidden");
 
-  elements.incomeTotalRevenue.textContent = currencyFormatter.format(report.totalRevenue);
-  elements.incomeOperatingExpenses.textContent = currencyFormatter.format(report.operatingExpenses);
-  elements.incomeNetIncome.textContent = currencyFormatter.format(report.netIncome);
-  elements.incomeGrossProfit.textContent = currencyFormatter.format(report.netIncome);
-  elements.incomeStatusBadge.textContent = report.netIncome >= 0 ? "Net Profit" : "Net Loss";
-  elements.incomeStatusBadge.className = `badge ${report.netIncome >= 0 ? "badge-green" : "badge-red"}`;
+  buildIncomeStatementLayoutRows(report).forEach((row) => {
+    elements.incomeStatementList.appendChild(createIncomeStatementDisplayRow(row));
+  });
 }
 
 function renderBalanceSheet() {
@@ -4971,18 +4993,33 @@ function renderBalanceSheet() {
   renderSectionSubtotal(elements.balanceSheetAssetsSubtotal, "Total Assets", report.totalAssets);
   renderSectionSubtotal(elements.balanceSheetLiabilitiesSubtotal, "Total Liabilities", report.totalLiabilities);
   renderSectionSubtotal(elements.balanceSheetEquitySubtotal, "Total Equity", report.totalEquity);
+  elements.balanceSheetAssetsSubtotal.classList.add("fs-total--dark");
 
-  elements.balanceSheetTotalAssets.textContent = currencyFormatter.format(report.totalAssets);
-  elements.balanceSheetTotalLiabilities.textContent = currencyFormatter.format(
+  elements.balanceSheetTotalAssets.textContent = formatStatementCurrency(report.totalAssets);
+  elements.balanceSheetTotalLiabilities.textContent = formatStatementCurrency(
     report.totalLiabilities,
   );
-  elements.balanceSheetTotalEquity.textContent = currencyFormatter.format(report.totalEquity);
-  elements.balanceSheetBadge.textContent = report.isBalanced ? "✓ Balanced" : "Not Balanced";
+  elements.balanceSheetTotalEquity.textContent = formatStatementCurrency(report.totalEquity);
+  elements.balanceSheetAssetsFigure.textContent = formatStatementCurrency(report.totalAssets);
+  elements.balanceSheetLiabilitiesEquityFigure.textContent = formatStatementCurrency(
+    report.totalLiabilitiesAndEquity,
+  );
+  elements.balanceSheetDifference.textContent = formatStatementCurrency(report.totalEquity);
+  elements.balanceSheetBadge.textContent = report.isBalanced ? "\u2713 Balanced" : "Not Balanced";
   elements.balanceSheetBadge.className = `badge ${report.isBalanced ? "badge-green" : "badge-red"}`;
 
-  elements.balanceSheetCheckStatus.textContent = report.isBalanced
-    ? "Balance check confirmed: Total Assets equals Total Liabilities plus Equity."
-    : "Balance check failed: Total Assets does not equal Total Liabilities plus Equity.";
+  safeSetInnerHTML(
+    elements.balanceSheetCheckStatus,
+    `
+      <span>Total Liabilities + Equity</span>
+      <strong class="${report.totalLiabilitiesAndEquity < 0 ? "negative" : ""}">${escapeHtml(
+        formatStatementCurrency(report.totalLiabilitiesAndEquity),
+      )}</strong>
+      <span class="badge ${report.isBalanced ? "badge-green" : "badge-red"}">${escapeHtml(
+        report.isBalanced ? "\u2713 Balanced" : "Not Balanced",
+      )}</span>
+    `,
+  );
   elements.balanceSheetCheckStatus.classList.toggle("is-balanced", report.isBalanced);
   elements.balanceSheetCheckStatus.classList.toggle("is-unbalanced", !report.isBalanced);
 }
@@ -5039,12 +5076,24 @@ function renderCashFlowStatement() {
   renderSectionSubtotal(elements.cashFlowInvestingSubtotal, "Net Investing Cash Flow", report.investingTotal);
   renderSectionSubtotal(elements.cashFlowFinancingSubtotal, "Net Financing Cash Flow", report.financingTotal);
 
-  elements.cashFlowOpeningCash.textContent = currencyFormatter.format(report.openingCash);
-  elements.cashFlowNetMovement.textContent = currencyFormatter.format(report.netCashMovement);
-  elements.cashFlowClosingCash.textContent = currencyFormatter.format(report.closingCash);
+  elements.cashFlowOpeningCash.textContent = formatStatementCurrency(report.openingCash);
+  elements.cashFlowNetMovement.textContent = formatStatementCurrency(report.netCashMovement);
+  elements.cashFlowClosingCash.textContent = formatStatementCurrency(report.closingCash);
   elements.cashFlowNetMovement.classList.toggle("negative", report.netCashMovement < 0);
-  elements.cashFlowStatus.textContent = report.balanceCheck === 0 ? "✓ Reconciled" : "Not Reconciled";
+  elements.cashFlowStatus.textContent = report.balanceCheck === 0 ? "\u2713 Reconciled" : "Not Reconciled";
   elements.cashFlowStatus.className = `badge ${report.balanceCheck === 0 ? "badge-green" : "badge-red"}`;
+  safeSetInnerHTML(
+    elements.cashFlowReconciliationStatus,
+    `
+      <span>Opening Cash + Net Movement = Closing Cash</span>
+      <strong>${escapeHtml(formatStatementCurrency(report.closingCash))}</strong>
+      <span class="badge ${report.balanceCheck === 0 ? "badge-green" : "badge-red"}">${escapeHtml(
+        report.balanceCheck === 0 ? "\u2713 Reconciled" : "Not Reconciled",
+      )}</span>
+    `,
+  );
+  elements.cashFlowReconciliationStatus.classList.toggle("is-balanced", report.balanceCheck === 0);
+  elements.cashFlowReconciliationStatus.classList.toggle("is-unbalanced", report.balanceCheck !== 0);
 }
 
 function renderAssistant() {
@@ -5725,27 +5774,88 @@ function buildTrialBalanceReport(journalEntries = state.journalEntries) {
 
       return {
         account,
+        debit: closingColumns.debit,
+        credit: closingColumns.credit,
         totalDebits,
         totalCredits,
-        closingDebit: closingColumns.debit,
-        closingCredit: closingColumns.credit,
       };
     });
 
-  const totalDebits = rows.reduce((sum, row) => sum + row.totalDebits, 0);
-  const totalCredits = rows.reduce((sum, row) => sum + row.totalCredits, 0);
-  const totalClosingDebits = rows.reduce((sum, row) => sum + row.closingDebit, 0);
-  const totalClosingCredits = rows.reduce((sum, row) => sum + row.closingCredit, 0);
+  const totalDebits = rows.reduce((sum, row) => sum + row.debit, 0);
+  const totalCredits = rows.reduce((sum, row) => sum + row.credit, 0);
 
   return {
     rows,
     totalDebits,
     totalCredits,
-    totalClosingDebits,
-    totalClosingCredits,
     totalsBalanced: Math.abs(totalDebits - totalCredits) < 0.005,
-    closingBalanced: Math.abs(totalClosingDebits - totalClosingCredits) < 0.005,
   };
+}
+
+function normalizeStatementAmount(value) {
+  const amount = Number(value) || 0;
+  return Math.abs(amount) < 0.005 ? 0 : amount;
+}
+
+function formatStatementCurrency(value) {
+  const amount = normalizeStatementAmount(value);
+  return amount < 0
+    ? `(${currencyFormatter.format(Math.abs(amount))})`
+    : currencyFormatter.format(amount);
+}
+
+function extractAccountCodeNumber(account) {
+  const codeMatch = String(account?.code || "").match(/\d+/);
+  return codeMatch ? Number(codeMatch[0]) : Number.NaN;
+}
+
+function isAccountCodeInRange(account, rangeStart, rangeEnd) {
+  const codeNumber = extractAccountCodeNumber(account);
+  return Number.isFinite(codeNumber) && codeNumber >= rangeStart && codeNumber <= rangeEnd;
+}
+
+function sortIncomeStatementRows(rows) {
+  return [...rows].sort((left, right) => {
+    const codeCompare = String(left.account?.code || "").localeCompare(String(right.account?.code || ""), undefined, {
+      numeric: true,
+    });
+    if (codeCompare !== 0) {
+      return codeCompare;
+    }
+
+    return String(left.account?.name || "").localeCompare(String(right.account?.name || ""));
+  });
+}
+
+function isCostOfGoodsSoldAccount(account) {
+  return (
+    account.type === "Expense" &&
+    (isAccountCodeInRange(account, 5000, 5999) ||
+      /(cost of goods sold|cost of sales|\bcogs\b|direct (labou?r|materials?)|materials used|subcontract|job cost|inventory usage|cost of services?)/i.test(
+        account.name,
+      ))
+  );
+}
+
+function isOtherIncomeStatementIncomeAccount(account) {
+  return (
+    account.type === "Revenue" &&
+    (isAccountCodeInRange(account, 7000, 7999) ||
+      /(other income|non[-\s]?operating|interest income|dividend income|gain on (sale|disposal)|foreign exchange gain|\bfx gain\b)/i.test(
+        account.name,
+      ))
+  );
+}
+
+function isOtherIncomeStatementExpenseAccount(account) {
+  return (
+    account.type === "Expense" &&
+    !isCostOfGoodsSoldAccount(account) &&
+    (isAccountCodeInRange(account, 8000, 8999) ||
+      /(other expense|non[-\s]?operating|interest expense|loss on (sale|disposal)|foreign exchange loss|\bfx loss\b)/i.test(
+        account.name,
+      ))
+  );
 }
 
 function buildIncomeStatementReport(journalEntries = state.journalEntries) {
@@ -5765,32 +5875,98 @@ function buildIncomeStatementReport(journalEntries = state.journalEntries) {
     };
   });
 
-  const revenueAccounts = accountSummaries
-    .filter((summary) => summary.account.type === "Revenue")
-    .map((summary) => ({
-      account: summary.account,
-      amount: Math.max(0, summary.closingBalance),
-    }));
+  const revenueAccounts = [];
+  const cogsAccounts = [];
+  const operatingExpenseAccounts = [];
+  const otherIncomeAccounts = [];
+  const otherExpenseAccounts = [];
 
-  const expenseAccounts = accountSummaries
-    .filter((summary) => summary.account.type === "Expense")
-    .map((summary) => ({
-      account: summary.account,
-      amount: Math.max(0, summary.closingBalance),
-    }));
+  accountSummaries.forEach((summary) => {
+    const amount = normalizeStatementAmount(summary.closingBalance);
+    if (amount === 0) {
+      return;
+    }
 
-  const totalRevenue = revenueAccounts.reduce((sum, row) => sum + row.amount, 0);
-  const operatingExpenses = expenseAccounts.reduce((sum, row) => sum + row.amount, 0);
-  const grossProfit = totalRevenue;
-  const netIncome = grossProfit - operatingExpenses;
+    const row = {
+      account: summary.account,
+      amount,
+    };
+
+    if (summary.account.type === "Revenue") {
+      if (isOtherIncomeStatementIncomeAccount(summary.account)) {
+        otherIncomeAccounts.push(row);
+      } else {
+        revenueAccounts.push(row);
+      }
+      return;
+    }
+
+    if (summary.account.type === "Expense") {
+      if (isCostOfGoodsSoldAccount(summary.account)) {
+        cogsAccounts.push(row);
+      } else if (isOtherIncomeStatementExpenseAccount(summary.account)) {
+        otherExpenseAccounts.push(row);
+      } else {
+        operatingExpenseAccounts.push(row);
+      }
+    }
+  });
+
+  const sortedRevenueAccounts = sortIncomeStatementRows(revenueAccounts);
+  const sortedCogsAccounts = sortIncomeStatementRows(cogsAccounts);
+  const sortedOperatingExpenseAccounts = sortIncomeStatementRows(operatingExpenseAccounts);
+  const sortedOtherIncomeAccounts = sortIncomeStatementRows(otherIncomeAccounts);
+  const sortedOtherExpenseAccounts = sortIncomeStatementRows(otherExpenseAccounts);
+
+  const totalRevenue = normalizeStatementAmount(
+    sortedRevenueAccounts.reduce((sum, row) => sum + row.amount, 0),
+  );
+  const totalCogs = normalizeStatementAmount(sortedCogsAccounts.reduce((sum, row) => sum + row.amount, 0));
+  const grossProfit = normalizeStatementAmount(totalRevenue - totalCogs);
+  const operatingExpenses = normalizeStatementAmount(
+    sortedOperatingExpenseAccounts.reduce((sum, row) => sum + row.amount, 0),
+  );
+  const operatingIncome = normalizeStatementAmount(grossProfit - operatingExpenses);
+  const totalOtherIncome = normalizeStatementAmount(
+    sortedOtherIncomeAccounts.reduce((sum, row) => sum + row.amount, 0),
+  );
+  const totalOtherExpense = normalizeStatementAmount(
+    sortedOtherExpenseAccounts.reduce((sum, row) => sum + row.amount, 0),
+  );
+  const totalOther = normalizeStatementAmount(totalOtherIncome - totalOtherExpense);
+  const otherAccounts = sortIncomeStatementRows([
+    ...sortedOtherIncomeAccounts,
+    ...sortedOtherExpenseAccounts.map((row) => ({
+      ...row,
+      amount: normalizeStatementAmount(-row.amount),
+    })),
+  ]);
+  const netIncome = normalizeStatementAmount(operatingIncome + totalOther);
 
   return {
-    revenueAccounts,
-    expenseAccounts,
+    revenueAccounts: sortedRevenueAccounts,
+    cogsAccounts: sortedCogsAccounts,
+    expenseAccounts: sortedOperatingExpenseAccounts,
+    operatingExpenseAccounts: sortedOperatingExpenseAccounts,
+    otherIncomeAccounts: sortedOtherIncomeAccounts,
+    otherExpenseAccounts: sortedOtherExpenseAccounts,
+    otherAccounts,
     totalRevenue,
+    totalCogs,
     grossProfit,
     operatingExpenses,
+    operatingIncome,
+    totalOtherIncome,
+    totalOtherExpense,
+    totalOther,
     netIncome,
+    hasCogs: sortedCogsAccounts.length > 0,
+    hasOther: otherAccounts.length > 0,
+    hasActivity:
+      sortedRevenueAccounts.length > 0 ||
+      sortedCogsAccounts.length > 0 ||
+      sortedOperatingExpenseAccounts.length > 0 ||
+      otherAccounts.length > 0,
   };
 }
 
@@ -5839,7 +6015,8 @@ function buildBalanceSheetReport(journalEntries = state.journalEntries) {
   const retainedEarnings = incomeStatement.netIncome;
   const totalEquity =
     equityAccounts.reduce((sum, row) => sum + row.amount, 0) + retainedEarnings;
-  const difference = Math.abs(totalAssets - (totalLiabilities + totalEquity));
+  const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+  const difference = Math.abs(totalAssets - totalLiabilitiesAndEquity);
 
   const currentAssetAccounts = assetAccounts.filter((row) =>
     classifyBalanceSheetSection(row.account) === "current-asset",
@@ -5866,6 +6043,7 @@ function buildBalanceSheetReport(journalEntries = state.journalEntries) {
     totalAssets,
     totalLiabilities,
     totalEquity,
+    totalLiabilitiesAndEquity,
     difference,
     isBalanced: difference < 0.005,
   };
@@ -6696,10 +6874,7 @@ function buildAssistantFinancialContext() {
     trialBalance: {
       totalDebits: trialBalance.totalDebits,
       totalCredits: trialBalance.totalCredits,
-      totalClosingDebits: trialBalance.totalClosingDebits,
-      totalClosingCredits: trialBalance.totalClosingCredits,
       totalsBalanced: trialBalance.totalsBalanced,
-      closingBalanced: trialBalance.closingBalanced,
     },
     incomeStatement: {
       totalRevenue: incomeStatement.totalRevenue,
@@ -6740,6 +6915,81 @@ function createStatementRow(label, amount) {
     `,
   );
   return row;
+}
+
+function buildIncomeStatementLayoutRows(report) {
+  const rows = [];
+
+  const appendSection = (label, lineItems, subtotalLabel, subtotalAmount) => {
+    rows.push({ type: "section-header", label });
+    lineItems.forEach((row) => {
+      rows.push({
+        type: "line-item",
+        label: row.account.name,
+        amount: row.amount,
+      });
+    });
+    rows.push({
+      type: "subtotal",
+      label: subtotalLabel,
+      amount: subtotalAmount,
+    });
+  };
+
+  appendSection("Revenue", report.revenueAccounts, "Total Revenue", report.totalRevenue);
+
+  if (report.hasCogs) {
+    appendSection("Cost of Goods Sold", report.cogsAccounts, "Total COGS", report.totalCogs);
+    rows.push({
+      type: "subtotal",
+      label: "Gross Profit",
+      amount: report.grossProfit,
+    });
+  }
+
+  appendSection(
+    "Operating Expenses",
+    report.operatingExpenseAccounts,
+    "Total Operating Expenses",
+    report.operatingExpenses,
+  );
+  rows.push({
+    type: "metric",
+    label: "Operating Income",
+    amount: report.operatingIncome,
+  });
+
+  if (report.hasOther) {
+    appendSection("Other Income/Expenses", report.otherAccounts, "Total Other", report.totalOther);
+  }
+
+  rows.push({
+    type: "grand-total",
+    label: "Net Income",
+    amount: report.netIncome,
+  });
+
+  return rows;
+}
+
+function createIncomeStatementDisplayRow(row) {
+  const rowElement = document.createElement("div");
+  rowElement.className = `income-statement-row income-statement-row--${row.type}`;
+
+  if (row.type === "section-header") {
+    rowElement.textContent = row.label;
+    return rowElement;
+  }
+
+  safeSetInnerHTML(
+    rowElement,
+    `
+      <span class="income-statement-label">${escapeHtml(row.label)}</span>
+      <span class="income-statement-amount">${escapeHtml(formatStatementCurrency(row.amount))}</span>
+    `,
+  );
+
+  return rowElement;
 }
 
 function setDashboardCardTone(valueElement, tone) {
