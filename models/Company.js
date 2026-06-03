@@ -68,6 +68,10 @@ const companySchema = new mongoose.Schema(
       type: Number,
       default: 100000,
     },
+    onboardingComplete: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

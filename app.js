@@ -214,6 +214,8 @@ const state = {
   authView: "login",
   setupBannerDismissed: false,
   onboardingStepIndex: 0,
+  shouldShowOnboarding: false,
+  setupWizard: getDefaultSetupWizardState(),
   reportDateRange: getDefaultReportDateRange(),
   locationOptions: {
     countries: [],
@@ -242,6 +244,7 @@ const state = {
     journal: { loading: false, error: "" },
     ledger: { loading: false, error: "" },
   },
+  openRowActionMenu: null,
 };
 
 const elements = {
@@ -418,6 +421,9 @@ const elements = {
   cancelJournalButton: document.querySelector("#cancel-journal-button"),
   closeJournalDialogButton: document.querySelector("#close-journal-dialog-button"),
   saveJournalButton: document.querySelector("#save-journal-button"),
+  invoiceDialog: document.querySelector("#invoice-dialog"),
+  openInvoiceDialogButton: document.querySelector("#open-invoice-dialog-button"),
+  closeInvoiceDialogButton: document.querySelector("#close-invoice-dialog-button"),
   invoiceForm: document.querySelector("#invoice-form"),
   invoiceNumber: document.querySelector("#invoice-number"),
   invoiceStatus: document.querySelector("#invoice-status"),
@@ -435,6 +441,9 @@ const elements = {
   invoiceTableWrapper: document.querySelector("#invoice-table-wrapper"),
   invoiceTableBody: document.querySelector("#invoice-table-body"),
   invoiceEmptyState: document.querySelector("#invoice-empty-state"),
+  billDialog: document.querySelector("#bill-dialog"),
+  openBillDialogButton: document.querySelector("#open-bill-dialog-button"),
+  closeBillDialogButton: document.querySelector("#close-bill-dialog-button"),
   billForm: document.querySelector("#bill-form"),
   billNumber: document.querySelector("#bill-number"),
   billStatus: document.querySelector("#bill-status"),
@@ -459,6 +468,14 @@ const elements = {
   confirmationCancelButton: document.querySelector("#confirmation-cancel-button"),
   confirmationConfirmButton: document.querySelector("#confirmation-confirm-button"),
   closeConfirmationDialogButton: document.querySelector("#close-confirmation-dialog-button"),
+  setupWizard: document.querySelector("#setup-wizard"),
+  setupWizardBody: document.querySelector("#setup-wizard-body"),
+  setupWizardProgressFill: document.querySelector("#setup-wizard-progress-fill"),
+  setupWizardProgressText: document.querySelector("#setup-wizard-progress-text"),
+  setupWizardBack: document.querySelector("#setup-wizard-back"),
+  setupWizardSkip: document.querySelector("#setup-wizard-skip"),
+  setupWizardDots: document.querySelector("#setup-wizard-dots"),
+  setupWizardCard: document.querySelector(".setup-wizard-card"),
 };
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
@@ -484,6 +501,7 @@ elements.addLineItemButton.addEventListener("click", addLineItemRow);
 elements.lineItemsList.addEventListener("input", handleLineItemChange);
 elements.lineItemsList.addEventListener("change", handleLineItemChange);
 elements.lineItemsList.addEventListener("click", handleLineItemClick);
+document.addEventListener("click", handleGlobalDocumentClick);
 elements.printTrialBalanceButton.addEventListener("click", () =>
   exportSectionToPdf("trial-balance"),
 );
@@ -523,6 +541,18 @@ elements.invoiceLineItems.addEventListener("click", handleInvoiceLineItemClick);
 elements.invoiceStatus.addEventListener("change", renderInvoiceNumberPreview);
 elements.invoiceTaxPercentage.addEventListener("input", renderInvoiceTotals);
 elements.invoiceTableBody.addEventListener("click", handleInvoiceTableAction);
+if (elements.openInvoiceDialogButton) {
+  elements.openInvoiceDialogButton.addEventListener("click", () => openInvoiceDialog());
+}
+if (elements.closeInvoiceDialogButton) {
+  elements.closeInvoiceDialogButton.addEventListener("click", closeInvoiceDialog);
+}
+if (elements.invoiceDialog) {
+  elements.invoiceDialog.addEventListener("close", () => {
+    state.editingInvoiceId = null;
+    resetInvoiceForm();
+  });
+}
 elements.billForm.addEventListener("submit", handleBillSubmit);
 elements.billResetButton.addEventListener("click", resetBillForm);
 elements.addBillLineButton.addEventListener("click", () => addBillLineItemRow());
@@ -531,6 +561,18 @@ elements.billLineItems.addEventListener("click", handleBillLineItemClick);
 elements.billStatus.addEventListener("change", renderBillNumberPreview);
 elements.billTaxPercentage.addEventListener("input", renderBillTotals);
 elements.billTableBody.addEventListener("click", handleBillTableAction);
+if (elements.openBillDialogButton) {
+  elements.openBillDialogButton.addEventListener("click", () => openBillDialog());
+}
+if (elements.closeBillDialogButton) {
+  elements.closeBillDialogButton.addEventListener("click", closeBillDialog);
+}
+if (elements.billDialog) {
+  elements.billDialog.addEventListener("close", () => {
+    state.editingBillId = null;
+    resetBillForm();
+  });
+}
 elements.dashboardPendingActions.addEventListener("click", handleDashboardApprovalAction);
 elements.reportFilterPanels.forEach((panel) => {
   panel.addEventListener("click", handleReportFilterAction);
@@ -556,8 +598,12 @@ elements.closeConfirmationDialogButton.addEventListener("click", cancelConfirmat
 elements.confirmationDialog.addEventListener("cancel", handleConfirmationDialogCancel);
 elements.confirmationDialog.addEventListener("close", handleConfirmationDialogClose);
 elements.confirmationDialog.addEventListener("click", handleConfirmationDialogBackdropClick);
+initQuickTransactions();
 window.addEventListener("resize", handleWindowResize);
 document.addEventListener("click", handleDocumentClick);
+if (elements.setupWizard) {
+  elements.setupWizard.addEventListener("click", handleSetupWizardClick);
+}
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
@@ -919,8 +965,12 @@ async function initializeState() {
     state.companySetupMode = "edit";
     state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(bootstrap.accounts) ? bootstrap.accounts : []);
     state.journalEntries = syncSystemJournalEntry(
-      Array.isArray(bootstrap.journalEntries) ? bootstrap.journalEntries : [],
+      Array.isArray(bootstrap.journalEntries)
+        ? bootstrap.journalEntries.map(normalizeJournalEntryFromApi)
+        : [],
     );
+    state.shouldShowOnboarding = Boolean(bootstrap.shouldShowOnboarding);
+    applySetupWizardVisibility(Boolean(bootstrap.shouldShowOnboarding));
     state.invoices = Array.isArray(bootstrap.invoices) ? bootstrap.invoices.map(normalizeInvoiceRecord) : [];
     state.bills = Array.isArray(bootstrap.bills) ? bootstrap.bills.map(normalizeBillRecord) : [];
     state.editingInvoiceId = null;
@@ -977,8 +1027,15 @@ async function refreshWorkspaceData() {
     state.companySetupMode = "edit";
     state.accounts = syncOpeningBalanceEquityAccount(Array.isArray(payload.accounts) ? payload.accounts : []);
     state.journalEntries = syncSystemJournalEntry(
-      Array.isArray(payload.journalEntries) ? payload.journalEntries : [],
+      Array.isArray(payload.journalEntries) ? payload.journalEntries.map(normalizeJournalEntryFromApi) : [],
     );
+    state.shouldShowOnboarding = Boolean(payload.shouldShowOnboarding);
+    if (!state.companySetup.onboardingComplete && payload.shouldShowOnboarding) {
+      state.setupWizard.open = true;
+    }
+    if (state.companySetup.onboardingComplete) {
+      closeSetupWizard();
+    }
     state.invoices = Array.isArray(payload.invoices) ? payload.invoices.map(normalizeInvoiceRecord) : [];
     state.bills = Array.isArray(payload.bills) ? payload.bills.map(normalizeBillRecord) : [];
     state.editingInvoiceId = null;
@@ -1107,6 +1164,7 @@ function normalizeCompanySetup(company) {
     billApprovalThreshold: Number.isFinite(Number(companyData?.billApprovalThreshold))
       ? Number(companyData?.billApprovalThreshold)
       : fallback.billApprovalThreshold,
+    onboardingComplete: Boolean(companyData?.onboardingComplete),
     currency: selectedCurrency?.code || fallback.currency,
   };
 }
@@ -1477,6 +1535,7 @@ function render() {
   renderCashFlowStatement();
   renderAssistant();
   renderSummary();
+  renderSetupWizard();
 }
 
 function renderNavigation() {
@@ -1810,7 +1869,7 @@ function setDashboardBadge(element, text, tone) {
   }
 
   element.textContent = text;
-  element.className = `badge badge-${tone}`;
+  element.className = `kpi-metric-caption kpi-metric-caption--${tone}`;
 }
 
 function formatDashboardEntrySource(entry) {
@@ -2198,27 +2257,38 @@ function renderInvoices() {
     .slice()
     .sort((left, right) => new Date(right.invoiceDate) - new Date(left.invoiceDate))
     .forEach((invoice) => {
+      const isMenuOpen =
+        state.openRowActionMenu?.type === "invoice" && state.openRowActionMenu?.id === invoice.id;
+      const canMarkPaid = canShowMarkAsPaid(invoice.status);
       const row = document.createElement("tr");
       safeSetInnerHTML(
         row,
         `
           <td>
-            <strong>${escapeHtml(invoice.invoiceNumber)}</strong>
+            <strong>${escapeHtml(invoice.clientName)}</strong>
+            <div class="ledger-note">${escapeHtml(invoice.invoiceNumber)}</div>
           </td>
           <td>
-            <strong>${escapeHtml(invoice.clientName)}</strong>
-            <div class="ledger-note">${escapeHtml(invoice.clientEmail || "No email")}</div>
+            ${renderStatusBadgeHtml({ status: invoice.status, approvalStatus: "" })}
           </td>
-          <td><span class="status-badge invoice-status-${escapeHtml(normalizeString(invoice.status))}">${escapeHtml(invoice.status)}</span></td>
           <td>${escapeHtml(formatDate(invoice.invoiceDate))}</td>
           <td>${escapeHtml(formatDate(invoice.dueDate))}</td>
           <td class="numeric">${escapeHtml(currencyFormatter.format(invoice.totalAmount))}</td>
-          <td>
-            <div class="table-actions">
-              <button class="ghost-button" type="button" data-action="edit-invoice" data-id="${invoice.id}">Edit</button>
-              <button class="ghost-button" type="button" data-action="mark-paid-invoice" data-id="${invoice.id}">Mark as Paid</button>
-              <button class="ghost-button" type="button" data-action="export-invoice" data-id="${invoice.id}">Export PDF</button>
-              <button class="ghost-button danger" type="button" data-action="delete-invoice" data-id="${invoice.id}">Delete</button>
+          <td class="numeric">
+            <div class="row-actions" data-row-actions="invoice" data-id="${invoice.id}">
+              <button class="icon-button row-actions-trigger" type="button" aria-haspopup="menu" aria-expanded="${isMenuOpen ? "true" : "false"}" data-action="toggle-row-menu" data-row-type="invoice" data-id="${invoice.id}">
+                <span aria-hidden="true">⋮</span>
+              </button>
+              <div class="actions-dropdown ${isMenuOpen ? "" : "hidden"}" role="menu">
+                <button class="actions-dropdown-item" type="button" role="menuitem" data-action="edit-invoice" data-id="${invoice.id}">Edit</button>
+                ${
+                  canMarkPaid
+                    ? `<button class="actions-dropdown-item" type="button" role="menuitem" data-action="mark-paid-invoice" data-id="${invoice.id}">Mark as Paid</button>`
+                    : ""
+                }
+                <button class="actions-dropdown-item" type="button" role="menuitem" data-action="export-invoice" data-id="${invoice.id}">Export PDF</button>
+                <button class="actions-dropdown-item danger" type="button" role="menuitem" data-action="delete-invoice" data-id="${invoice.id}">Delete</button>
+              </div>
             </div>
           </td>
         `,
@@ -2420,6 +2490,7 @@ async function handleInvoiceSubmit(event) {
     await refreshWorkspaceData();
     setActiveView("invoices");
     resetInvoiceForm();
+    closeInvoiceDialog();
     showToast(isEditingInvoice ? "Invoice updated successfully" : "Invoice created successfully");
   } catch (error) {
     showInvoiceError(error.message);
@@ -2445,11 +2516,28 @@ function startEditingInvoice(invoice) {
   renderInvoiceTotals();
   hideInvoiceError();
   setActiveView("invoices");
+  openInvoiceDialog();
 }
 
 async function handleInvoiceTableAction(event) {
   const button = event.target instanceof Element ? event.target.closest("[data-action]") : null;
   if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  if (button.dataset.action === "toggle-row-menu") {
+    event.preventDefault();
+    event.stopPropagation();
+    const rowType = button.dataset.rowType || "";
+    const rowId = button.dataset.id || "";
+    if (!rowType || !rowId) {
+      return;
+    }
+    const isSame =
+      state.openRowActionMenu?.type === rowType && state.openRowActionMenu?.id === rowId;
+    state.openRowActionMenu = isSame ? null : { type: rowType, id: rowId };
+    renderInvoices();
+    renderBills();
     return;
   }
 
@@ -2469,6 +2557,7 @@ async function handleInvoiceTableAction(event) {
       await apiFetch(`/api/invoices/${invoice.id}/mark-paid`, { method: "POST" });
       await refreshWorkspaceData();
       setActiveView("invoices");
+      closeRowActionMenu();
       showToast("Invoice marked as paid");
     } catch (error) {
       showToast(`Unable to mark invoice as paid. ${error.message}`, "error");
@@ -2478,6 +2567,7 @@ async function handleInvoiceTableAction(event) {
 
   if (action === "export-invoice") {
     exportInvoiceToPdf(invoice);
+    closeRowActionMenu();
     return;
   }
 
@@ -2499,6 +2589,7 @@ async function handleInvoiceTableAction(event) {
         resetInvoiceForm();
       }
       setActiveView("invoices");
+      closeRowActionMenu();
       showToast("Invoice deleted successfully");
     } catch (error) {
       showToast(`Unable to delete invoice. ${error.message}`, "error");
@@ -2532,28 +2623,38 @@ function renderBills() {
     .slice()
     .sort((left, right) => new Date(right.billDate) - new Date(left.billDate))
     .forEach((bill) => {
+      const isMenuOpen =
+        state.openRowActionMenu?.type === "bill" && state.openRowActionMenu?.id === bill.id;
+      const canMarkPaid = canShowMarkAsPaid(bill.status);
       const row = document.createElement("tr");
       safeSetInnerHTML(
         row,
         `
           <td>
-            <strong>${escapeHtml(bill.billNumber)}</strong>
+            <strong>${escapeHtml(bill.supplierName)}</strong>
+            <div class="ledger-note">${escapeHtml(bill.billNumber)}</div>
           </td>
           <td>
-            <strong>${escapeHtml(bill.supplierName)}</strong>
-            <div class="ledger-note">${escapeHtml(bill.supplierEmail || "No email")}</div>
+            ${renderStatusBadgeHtml({ status: bill.status, approvalStatus: bill.approvalStatus })}
           </td>
-          <td><span class="status-badge invoice-status-${escapeHtml(normalizeString(bill.status))}">${escapeHtml(bill.status)}</span></td>
-          <td><span class="status-badge ${bill.approvalStatus === "Approved" || bill.approvalStatus === "Not Required" ? "balanced" : "unbalanced"}">${escapeHtml(bill.approvalStatus)}</span></td>
           <td>${escapeHtml(formatDate(bill.billDate))}</td>
           <td>${escapeHtml(formatDate(bill.dueDate))}</td>
           <td class="numeric">${escapeHtml(currencyFormatter.format(bill.totalAmount))}</td>
-          <td>
-            <div class="table-actions">
-              <button class="ghost-button" type="button" data-action="edit-bill" data-id="${bill.id}">Edit</button>
-              <button class="ghost-button" type="button" data-action="mark-paid-bill" data-id="${bill.id}">Mark as Paid</button>
-              <button class="ghost-button" type="button" data-action="export-bill" data-id="${bill.id}">Export PDF</button>
-              <button class="ghost-button danger" type="button" data-action="delete-bill" data-id="${bill.id}">Delete</button>
+          <td class="numeric">
+            <div class="row-actions" data-row-actions="bill" data-id="${bill.id}">
+              <button class="icon-button row-actions-trigger" type="button" aria-haspopup="menu" aria-expanded="${isMenuOpen ? "true" : "false"}" data-action="toggle-row-menu" data-row-type="bill" data-id="${bill.id}">
+                <span aria-hidden="true">⋮</span>
+              </button>
+              <div class="actions-dropdown ${isMenuOpen ? "" : "hidden"}" role="menu">
+                <button class="actions-dropdown-item" type="button" role="menuitem" data-action="edit-bill" data-id="${bill.id}">Edit</button>
+                ${
+                  canMarkPaid
+                    ? `<button class="actions-dropdown-item" type="button" role="menuitem" data-action="mark-paid-bill" data-id="${bill.id}">Mark as Paid</button>`
+                    : ""
+                }
+                <button class="actions-dropdown-item" type="button" role="menuitem" data-action="export-bill" data-id="${bill.id}">Export PDF</button>
+                <button class="actions-dropdown-item danger" type="button" role="menuitem" data-action="delete-bill" data-id="${bill.id}">Delete</button>
+              </div>
             </div>
           </td>
         `,
@@ -2755,6 +2856,7 @@ async function handleBillSubmit(event) {
     await refreshWorkspaceData();
     setActiveView("bills");
     resetBillForm();
+    closeBillDialog();
     showToast(isEditingBill ? "Bill updated successfully" : "Bill created successfully");
   } catch (error) {
     showBillError(error.message);
@@ -2780,11 +2882,28 @@ function startEditingBill(bill) {
   renderBillTotals();
   hideBillError();
   setActiveView("bills");
+  openBillDialog();
 }
 
 async function handleBillTableAction(event) {
   const button = event.target instanceof Element ? event.target.closest("[data-action]") : null;
   if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  if (button.dataset.action === "toggle-row-menu") {
+    event.preventDefault();
+    event.stopPropagation();
+    const rowType = button.dataset.rowType || "";
+    const rowId = button.dataset.id || "";
+    if (!rowType || !rowId) {
+      return;
+    }
+    const isSame =
+      state.openRowActionMenu?.type === rowType && state.openRowActionMenu?.id === rowId;
+    state.openRowActionMenu = isSame ? null : { type: rowType, id: rowId };
+    renderInvoices();
+    renderBills();
     return;
   }
 
@@ -2804,6 +2923,7 @@ async function handleBillTableAction(event) {
       await apiFetch(`/api/bills/${bill.id}/mark-paid`, { method: "POST" });
       await refreshWorkspaceData();
       setActiveView("bills");
+      closeRowActionMenu();
       showToast("Bill marked as paid");
     } catch (error) {
       showToast(`Unable to mark bill as paid. ${error.message}`, "error");
@@ -2813,6 +2933,7 @@ async function handleBillTableAction(event) {
 
   if (action === "export-bill") {
     exportBillToPdf(bill);
+    closeRowActionMenu();
     return;
   }
 
@@ -2834,11 +2955,84 @@ async function handleBillTableAction(event) {
         resetBillForm();
       }
       setActiveView("bills");
+      closeRowActionMenu();
       showToast("Bill deleted successfully");
     } catch (error) {
       showToast(`Unable to delete bill. ${error.message}`, "error");
     }
   }
+}
+
+function canShowMarkAsPaid(status) {
+  const normalized = normalizeString(status);
+  return normalized !== "paid";
+}
+
+function renderStatusBadgeHtml({ status, approvalStatus }) {
+  const normalizedStatus = normalizeString(status);
+  const normalizedApproval = normalizeString(approvalStatus);
+
+  let tone = "badge-blue";
+  if (normalizedStatus === "paid") {
+    tone = "badge-green";
+  } else if (normalizedStatus === "overdue") {
+    tone = "badge-red";
+  } else if (normalizedStatus === "draft") {
+    tone = "badge-gray";
+  }
+
+  if (normalizedApproval === "pending approval") {
+    tone = "badge-amber";
+  }
+
+  let label = status || "";
+  if (normalizedApproval === "pending approval" && normalizedStatus !== "draft") {
+    label = normalizedStatus === "overdue" ? "Overdue · Pending Approval" : "Pending Approval";
+  }
+
+  return `<span class="badge ${tone}">${escapeHtml(label)}</span>`;
+}
+
+function handleGlobalDocumentClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) {
+    return;
+  }
+
+  if (state.openRowActionMenu && !target.closest(".row-actions")) {
+    closeRowActionMenu();
+  }
+}
+
+function closeRowActionMenu() {
+  if (!state.openRowActionMenu) {
+    return;
+  }
+  state.openRowActionMenu = null;
+  renderInvoices();
+  renderBills();
+}
+
+function openInvoiceDialog() {
+  if (!elements.invoiceDialog) {
+    return;
+  }
+  elements.invoiceDialog.showModal();
+}
+
+function closeInvoiceDialog() {
+  elements.invoiceDialog?.close();
+}
+
+function openBillDialog() {
+  if (!elements.billDialog) {
+    return;
+  }
+  elements.billDialog.showModal();
+}
+
+function closeBillDialog() {
+  elements.billDialog?.close();
 }
 
 async function handleDashboardApprovalAction(event) {
@@ -3101,8 +3295,617 @@ function getDefaultCompanySetup() {
     city: "",
     financialYearStart: "",
     billApprovalThreshold: 100000,
+    onboardingComplete: false,
   };
 }
+
+const setupWizardBusinessTypes = [
+  { id: "retail", emoji: "🛒", label: "Retail / Trading" },
+  { id: "services", emoji: "🔧", label: "Services" },
+  { id: "restaurant", emoji: "🍽️", label: "Restaurant / Food" },
+  { id: "transport", emoji: "🚗", label: "Transport / Logistics" },
+  { id: "pharmacy", emoji: "💊", label: "Pharmacy / Health" },
+  { id: "other", emoji: "📦", label: "Other" },
+];
+
+function getDefaultSetupWizardState() {
+  return {
+    open: false,
+    step: 1,
+    direction: "forward",
+    error: "",
+    businessType: "",
+    openingCapital: {
+      amount: "",
+      date: getTodayDate(),
+      splitBank: false,
+      cashAmount: "",
+      bankAmount: "",
+    },
+    purchaseChoice: "",
+    purchase: {
+      description: "",
+      amount: "",
+      date: getTodayDate(),
+    },
+    summary: {
+      openingCapitalAmount: 0,
+      purchaseAmount: 0,
+      purchaseDescription: "",
+    },
+  };
+}
+
+function normalizeJournalEntryFromApi(entry) {
+  return {
+    id: String(entry?.id || "").trim(),
+    date: String(entry?.date || "").trim(),
+    description: String(entry?.description || "").trim(),
+    sourceType: String(entry?.sourceType || "").trim(),
+    sourceId: String(entry?.sourceId || "").trim(),
+    lineItems: Array.isArray(entry?.lineItems)
+      ? entry.lineItems.map((line) => ({
+          accountId: String(line?.accountId || "").trim(),
+          debit: Number(line?.debit) || 0,
+          credit: Number(line?.credit) || 0,
+        }))
+      : [],
+    systemGenerated: false,
+  };
+}
+
+function applySetupWizardVisibility(shouldOpen) {
+  if (!shouldOpen || state.companySetup.onboardingComplete) {
+    closeSetupWizard();
+    return;
+  }
+
+  state.setupWizard.open = true;
+  state.setupWizard.step = detectSetupWizardResumeStep();
+  hydrateSetupWizardSummaryFromEntries();
+}
+
+function detectSetupWizardResumeStep() {
+  if (findOnboardingJournalEntry("initial-purchase")) {
+    return 5;
+  }
+  if (findOnboardingJournalEntry("opening-capital")) {
+    return 4;
+  }
+  if (String(state.companySetup.businessType || "").trim()) {
+    return 3;
+  }
+  return 1;
+}
+
+function findOnboardingJournalEntry(sourceId) {
+  return state.journalEntries.find(
+    (entry) => !entry.systemGenerated && entry.sourceType === "onboarding" && entry.sourceId === sourceId,
+  );
+}
+
+function hydrateSetupWizardSummaryFromEntries() {
+  const openingEntry = findOnboardingJournalEntry("opening-capital");
+  const purchaseEntry = findOnboardingJournalEntry("initial-purchase");
+
+  if (openingEntry) {
+    const totalDebit = openingEntry.lineItems.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
+    state.setupWizard.summary.openingCapitalAmount = totalDebit;
+  }
+
+  if (purchaseEntry) {
+    const purchaseDebit = purchaseEntry.lineItems.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
+    state.setupWizard.summary.purchaseAmount = purchaseDebit;
+    state.setupWizard.summary.purchaseDescription = purchaseEntry.description;
+  }
+}
+
+function closeSetupWizard() {
+  state.setupWizard.open = false;
+  state.setupWizard.error = "";
+  state.shouldShowOnboarding = false;
+  if (elements.setupWizard) {
+    elements.setupWizard.classList.add("hidden");
+    elements.setupWizard.hidden = true;
+    elements.setupWizard.setAttribute("aria-hidden", "true");
+  }
+  document.body.style.overflow = "";
+}
+
+function openSetupWizard() {
+  if (!elements.setupWizard) {
+    return;
+  }
+
+  state.setupWizard.open = true;
+  elements.setupWizard.classList.remove("hidden");
+  elements.setupWizard.hidden = false;
+  elements.setupWizard.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+}
+
+function renderSetupWizard() {
+  if (!elements.setupWizard || !state.currentUser) {
+    return;
+  }
+
+  if (!state.setupWizard.open || state.companySetup.onboardingComplete) {
+    closeSetupWizard();
+    return;
+  }
+
+  openSetupWizard();
+
+  const step = state.setupWizard.step;
+  const totalSteps = 5;
+  const progressPercent = (step / totalSteps) * 100;
+
+  if (elements.setupWizardProgressFill) {
+    elements.setupWizardProgressFill.style.width = `${progressPercent}%`;
+  }
+  if (elements.setupWizardProgressText) {
+    elements.setupWizardProgressText.textContent = `Step ${step} of ${totalSteps}`;
+  }
+
+  const showBack = step > 1 && step < 5;
+  const showSkip = step > 1 && step < 5;
+  elements.setupWizardBack?.classList.toggle("hidden", !showBack);
+  elements.setupWizardSkip?.classList.toggle("hidden", !showSkip);
+
+  if (elements.setupWizardDots) {
+    safeSetInnerHTML(
+      elements.setupWizardDots,
+      Array.from({ length: totalSteps }, (_, index) => {
+        const dotStep = index + 1;
+        return `<span class="setup-wizard-dot${dotStep === step ? " is-active" : ""}"></span>`;
+      }).join(""),
+    );
+  }
+
+  if (elements.setupWizardCard) {
+    elements.setupWizardCard.classList.remove("is-entering-forward", "is-entering-back");
+    elements.setupWizardCard.classList.add(
+      state.setupWizard.direction === "back" ? "is-entering-back" : "is-entering-forward",
+    );
+  }
+
+  const errorMarkup = state.setupWizard.error
+    ? `<p class="setup-wizard-error" role="alert">${escapeHtml(state.setupWizard.error)}</p>`
+    : "";
+
+  if (step === 1) {
+    safeSetInnerHTML(
+      elements.setupWizardBody,
+      `
+        ${errorMarkup}
+        <h2 class="setup-wizard-heading" id="setup-wizard-heading">Welcome to LedgrAI</h2>
+        <p class="setup-wizard-subtext">Let's set up your workspace in 5 simple steps. No accounting knowledge needed.</p>
+        <button class="setup-wizard-primary-button" type="button" data-wizard-action="next">Let's get started →</button>
+      `,
+    );
+    return;
+  }
+
+  if (step === 2) {
+    if (!state.setupWizard.businessType && state.companySetup.businessType) {
+      state.setupWizard.businessType = state.companySetup.businessType;
+    }
+
+    const optionsMarkup = setupWizardBusinessTypes
+      .map((option) => {
+        const selected = state.setupWizard.businessType === option.label ? " is-selected" : "";
+        return `
+          <button
+            class="setup-wizard-option-card${selected}"
+            type="button"
+            data-wizard-action="select-business"
+            data-business-type="${escapeHtml(option.label)}"
+          >
+            <span>${option.emoji}</span>
+            ${escapeHtml(option.label)}
+          </button>
+        `;
+      })
+      .join("");
+
+    safeSetInnerHTML(
+      elements.setupWizardBody,
+      `
+        ${errorMarkup}
+        <h2 class="setup-wizard-heading" id="setup-wizard-heading">What kind of business do you run?</h2>
+        <p class="setup-wizard-subtext">This helps us set up the right accounts for you.</p>
+        <div class="setup-wizard-option-grid">${optionsMarkup}</div>
+        <button class="setup-wizard-primary-button" type="button" data-wizard-action="next" ${
+          state.setupWizard.businessType ? "" : "disabled"
+        }>Continue</button>
+      `,
+    );
+    return;
+  }
+
+  if (step === 3) {
+    const currencySymbol = getCurrencyMeta(state.companySetup.currency)?.symbol || "₦";
+    const splitFields = state.setupWizard.openingCapital.splitBank
+      ? `
+        <div class="setup-wizard-split-grid">
+          <label class="setup-wizard-field">
+            <span>Cash amount</span>
+            <div class="setup-wizard-input-row">
+              <span class="setup-wizard-input-prefix">${escapeHtml(currencySymbol)}</span>
+              <input id="setup-wizard-cash-amount" type="number" min="0" step="0.01" value="${escapeHtml(
+                state.setupWizard.openingCapital.cashAmount,
+              )}" />
+            </div>
+          </label>
+          <label class="setup-wizard-field">
+            <span>Bank amount</span>
+            <div class="setup-wizard-input-row">
+              <span class="setup-wizard-input-prefix">${escapeHtml(currencySymbol)}</span>
+              <input id="setup-wizard-bank-amount" type="number" min="0" step="0.01" value="${escapeHtml(
+                state.setupWizard.openingCapital.bankAmount,
+              )}" />
+            </div>
+          </label>
+        </div>
+      `
+      : "";
+
+    safeSetInnerHTML(
+      elements.setupWizardBody,
+      `
+        ${errorMarkup}
+        <h2 class="setup-wizard-heading" id="setup-wizard-heading">How much money did you start your business with?</h2>
+        <p class="setup-wizard-subtext">This becomes your opening balance. You can always adjust this later.</p>
+        <div class="setup-wizard-form-grid">
+          <label class="setup-wizard-field">
+            <span>Amount</span>
+            <div class="setup-wizard-input-row">
+              <span class="setup-wizard-input-prefix">${escapeHtml(currencySymbol)}</span>
+              <input id="setup-wizard-opening-amount" type="number" min="0" step="0.01" value="${escapeHtml(
+                state.setupWizard.openingCapital.amount,
+              )}" />
+            </div>
+          </label>
+          <label class="setup-wizard-field">
+            <span>When did you start or open this business?</span>
+            <input id="setup-wizard-opening-date" type="date" value="${escapeHtml(
+              state.setupWizard.openingCapital.date,
+            )}" />
+          </label>
+          <label class="setup-wizard-checkbox">
+            <input id="setup-wizard-split-bank" type="checkbox" ${
+              state.setupWizard.openingCapital.splitBank ? "checked" : ""
+            } />
+            <span>Some of this is in a bank account</span>
+          </label>
+          ${splitFields}
+        </div>
+        <button class="setup-wizard-primary-button" type="button" data-wizard-action="submit-opening-capital">Continue</button>
+      `,
+    );
+    return;
+  }
+
+  if (step === 4) {
+    const showPurchaseForm = state.setupWizard.purchaseChoice === "yes";
+    const purchaseForm = showPurchaseForm
+      ? `
+        <div class="setup-wizard-form-grid">
+          <label class="setup-wizard-field">
+            <span>What did you buy?</span>
+            <input id="setup-wizard-purchase-description" type="text" placeholder="e.g. Stock, equipment, rent deposit" value="${escapeHtml(
+              state.setupWizard.purchase.description,
+            )}" />
+          </label>
+          <label class="setup-wizard-field">
+            <span>Amount</span>
+            <div class="setup-wizard-input-row">
+              <span class="setup-wizard-input-prefix">${escapeHtml(
+                getCurrencyMeta(state.companySetup.currency)?.symbol || "₦",
+              )}</span>
+              <input id="setup-wizard-purchase-amount" type="number" min="0" step="0.01" value="${escapeHtml(
+                state.setupWizard.purchase.amount,
+              )}" />
+            </div>
+          </label>
+          <label class="setup-wizard-field">
+            <span>Date</span>
+            <input id="setup-wizard-purchase-date" type="date" value="${escapeHtml(
+              state.setupWizard.purchase.date,
+            )}" />
+          </label>
+        </div>
+        <button class="setup-wizard-primary-button" type="button" data-wizard-action="submit-purchase">Continue</button>
+      `
+      : `
+        <div class="setup-wizard-option-grid">
+          <button class="setup-wizard-option-card${
+            state.setupWizard.purchaseChoice === "yes" ? " is-selected" : ""
+          }" type="button" data-wizard-action="purchase-yes">Yes, I made some purchases</button>
+          <button class="setup-wizard-option-card${
+            state.setupWizard.purchaseChoice === "no" ? " is-selected" : ""
+          }" type="button" data-wizard-action="purchase-no">No, not yet — skip this</button>
+        </div>
+      `;
+
+    safeSetInnerHTML(
+      elements.setupWizardBody,
+      `
+        ${errorMarkup}
+        <h2 class="setup-wizard-heading" id="setup-wizard-heading">Did you spend any money to get started?</h2>
+        <p class="setup-wizard-subtext">For example, buying stock, equipment, or paying for a space.</p>
+        ${purchaseForm}
+      `,
+    );
+    return;
+  }
+
+  const summaryLines = [];
+  if (state.setupWizard.summary.openingCapitalAmount > 0) {
+    summaryLines.push(
+      `<p>Opening balance recorded: <strong>${escapeHtml(
+        currencyFormatter.format(state.setupWizard.summary.openingCapitalAmount),
+      )}</strong></p>`,
+    );
+  }
+  if (state.setupWizard.summary.purchaseAmount > 0) {
+    summaryLines.push(
+      `<p>Purchase recorded: <strong>${escapeHtml(
+        currencyFormatter.format(state.setupWizard.summary.purchaseAmount),
+      )}</strong>${state.setupWizard.summary.purchaseDescription ? ` — ${escapeHtml(state.setupWizard.summary.purchaseDescription)}` : ""}</p>`,
+    );
+  }
+  if (!summaryLines.length) {
+    summaryLines.push("<p>Your workspace is ready to use.</p>");
+  }
+  summaryLines.push("<p>Your dashboard is ready.</p>");
+
+  safeSetInnerHTML(
+    elements.setupWizardBody,
+    `
+      ${errorMarkup}
+      <h2 class="setup-wizard-heading" id="setup-wizard-heading">You're all set! 🎉</h2>
+      <p class="setup-wizard-subtext">Here's what we created for you:</p>
+      <div class="setup-wizard-summary-card">${summaryLines.join("")}</div>
+      <button class="setup-wizard-primary-button" type="button" data-wizard-action="finish">Go to my dashboard →</button>
+    `,
+  );
+}
+
+function handleSetupWizardClick(event) {
+  const target = event.target instanceof Element ? event.target.closest("[data-wizard-action]") : null;
+  if (!(target instanceof HTMLElement) || !elements.setupWizard?.contains(target)) {
+    return;
+  }
+
+  const action = target.dataset.wizardAction;
+  if (action === "select-business") {
+    state.setupWizard.businessType = target.dataset.businessType || "";
+    state.setupWizard.error = "";
+    renderSetupWizard();
+    return;
+  }
+
+  if (action === "purchase-yes") {
+    state.setupWizard.purchaseChoice = "yes";
+    state.setupWizard.error = "";
+    renderSetupWizard();
+    return;
+  }
+
+  if (action === "purchase-no") {
+    state.setupWizard.purchaseChoice = "no";
+    state.setupWizard.error = "";
+    goToSetupWizardStep(5, "forward");
+    return;
+  }
+
+  if (action === "next") {
+    void handleSetupWizardNext();
+    return;
+  }
+
+  if (action === "submit-opening-capital") {
+    void submitSetupWizardOpeningCapital();
+    return;
+  }
+
+  if (action === "submit-purchase") {
+    void submitSetupWizardPurchase();
+    return;
+  }
+
+  if (action === "finish") {
+    void finishSetupWizard();
+  }
+}
+
+elements.setupWizardBack?.addEventListener("click", () => {
+  goToSetupWizardStep(Math.max(1, state.setupWizard.step - 1), "back");
+});
+
+elements.setupWizardSkip?.addEventListener("click", () => {
+  void skipSetupWizard();
+});
+
+async function handleSetupWizardNext() {
+  state.setupWizard.error = "";
+
+  if (state.setupWizard.step === 1) {
+    goToSetupWizardStep(2, "forward");
+    return;
+  }
+
+  if (state.setupWizard.step === 2) {
+    if (!state.setupWizard.businessType) {
+      state.setupWizard.error = "Choose the option that best describes your business.";
+      renderSetupWizard();
+      return;
+    }
+
+    try {
+      const companyPayload = readCompanySetupPayloadFromForm().payload;
+      await apiFetch("/api/company", {
+        method: "PUT",
+        body: JSON.stringify({
+          ...companyPayload,
+          companyName: companyPayload.companyName || state.companySetup.companyName || getActiveCompany()?.name || "",
+          businessType: state.setupWizard.businessType,
+        }),
+      });
+      state.companySetup.businessType = state.setupWizard.businessType;
+      goToSetupWizardStep(3, "forward");
+    } catch (error) {
+      state.setupWizard.error = error.message;
+      renderSetupWizard();
+    }
+  }
+}
+
+function readSetupWizardOpeningCapitalFromForm() {
+  const amount = Number(document.querySelector("#setup-wizard-opening-amount")?.value) || 0;
+  const date = document.querySelector("#setup-wizard-opening-date")?.value || getTodayDate();
+  const splitBank = Boolean(document.querySelector("#setup-wizard-split-bank")?.checked);
+  const cashAmount = Number(document.querySelector("#setup-wizard-cash-amount")?.value) || 0;
+  const bankAmount = Number(document.querySelector("#setup-wizard-bank-amount")?.value) || 0;
+
+  state.setupWizard.openingCapital = {
+    amount: String(amount || ""),
+    date,
+    splitBank,
+    cashAmount: String(cashAmount || ""),
+    bankAmount: String(bankAmount || ""),
+  };
+
+  return {
+    amount,
+    date,
+    splitBank,
+    cashAmount,
+    bankAmount,
+  };
+}
+
+async function submitSetupWizardOpeningCapital() {
+  state.setupWizard.error = "";
+  const formValues = readSetupWizardOpeningCapitalFromForm();
+
+  if (formValues.amount <= 0) {
+    state.setupWizard.error = "Enter the amount you started with.";
+    renderSetupWizard();
+    return;
+  }
+
+  if (findOnboardingJournalEntry("opening-capital")) {
+    hydrateSetupWizardSummaryFromEntries();
+    goToSetupWizardStep(4, "forward");
+    return;
+  }
+
+  try {
+    const response = await apiFetch("/api/onboarding/opening-capital", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: formValues.amount,
+        date: formValues.date,
+        splitBank: formValues.splitBank,
+        cashAmount: formValues.splitBank ? formValues.cashAmount : formValues.amount,
+        bankAmount: formValues.splitBank ? formValues.bankAmount : 0,
+      }),
+    });
+    state.setupWizard.summary.openingCapitalAmount = Number(response.openingCapitalAmount) || formValues.amount;
+    await refreshWorkspaceData();
+    goToSetupWizardStep(4, "forward");
+  } catch (error) {
+    state.setupWizard.error = error.message;
+    renderSetupWizard();
+  }
+}
+
+async function submitSetupWizardPurchase() {
+  state.setupWizard.error = "";
+  const description = document.querySelector("#setup-wizard-purchase-description")?.value.trim() || "";
+  const amount = Number(document.querySelector("#setup-wizard-purchase-amount")?.value) || 0;
+  const date = document.querySelector("#setup-wizard-purchase-date")?.value || getTodayDate();
+
+  state.setupWizard.purchase = { description, amount: String(amount || ""), date };
+
+  if (!description || amount <= 0) {
+    state.setupWizard.error = "Add what you bought and how much you spent.";
+    renderSetupWizard();
+    return;
+  }
+
+  if (findOnboardingJournalEntry("initial-purchase")) {
+    hydrateSetupWizardSummaryFromEntries();
+    goToSetupWizardStep(5, "forward");
+    return;
+  }
+
+  try {
+    const response = await apiFetch("/api/onboarding/initial-purchase", {
+      method: "POST",
+      body: JSON.stringify({ description, amount, date }),
+    });
+    state.setupWizard.summary.purchaseAmount = Number(response.purchaseAmount) || amount;
+    state.setupWizard.summary.purchaseDescription =
+      response.purchaseDescription || description;
+    await refreshWorkspaceData();
+    goToSetupWizardStep(5, "forward");
+  } catch (error) {
+    state.setupWizard.error = error.message;
+    renderSetupWizard();
+  }
+}
+
+async function finishSetupWizard() {
+  try {
+    const response = await apiFetch("/api/onboarding/complete", { method: "POST" });
+    state.companySetup = normalizeCompanySetup(response.company || state.companySetup);
+    state.companySetup.onboardingComplete = true;
+    closeSetupWizard();
+    await refreshWorkspaceData();
+    setActiveView("dashboard");
+    showToast("Your workspace is ready");
+  } catch (error) {
+    state.setupWizard.error = error.message;
+    renderSetupWizard();
+  }
+}
+
+async function skipSetupWizard() {
+  try {
+    const response = await apiFetch("/api/onboarding/skip", { method: "POST" });
+    state.companySetup = normalizeCompanySetup(response.company || state.companySetup);
+    state.companySetup.onboardingComplete = true;
+    closeSetupWizard();
+    await refreshWorkspaceData();
+    setActiveView("dashboard");
+    showToast("Setup wizard skipped");
+  } catch (error) {
+    state.setupWizard.error = error.message;
+    renderSetupWizard();
+  }
+}
+
+function goToSetupWizardStep(step, direction = "forward") {
+  state.setupWizard.direction = direction;
+  state.setupWizard.step = step;
+  state.setupWizard.error = "";
+  renderSetupWizard();
+}
+
+elements.setupWizardBody?.addEventListener("change", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || !elements.setupWizard?.contains(target)) {
+    return;
+  }
+
+  if (target.id === "setup-wizard-split-bank") {
+    readSetupWizardOpeningCapitalFromForm();
+    renderSetupWizard();
+  }
+});
 
 function renderCurrencyOptions() {
   updateSelectOptions(elements.currencySelect, currencyCatalog, "Select a currency", {
@@ -3168,6 +3971,322 @@ function updateCurrencyFormatter() {
       currency: "USD",
       currencyDisplay: "narrowSymbol",
     });
+  }
+
+  updateQuickTxCurrencyPrefixes();
+}
+
+const quickTxState = {
+  otherSuggestion: null,
+  busy: false,
+};
+
+const quickTxDialogIds = {
+  sale: "quick-tx-sale-dialog",
+  expense: "quick-tx-expense-dialog",
+  received_payment: "quick-tx-received-payment-dialog",
+  paid_supplier: "quick-tx-paid-supplier-dialog",
+  other: "quick-tx-other-dialog",
+};
+
+function initQuickTransactions() {
+  document.querySelectorAll("[data-quick-tx-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openQuickTxModal(button.getAttribute("data-quick-tx-open"));
+    });
+  });
+
+  document.querySelectorAll(".quick-tx-dialog").forEach((dialog) => {
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) {
+        closeQuickTxDialog(dialog);
+      }
+    });
+  });
+
+  document.querySelectorAll(".quick-tx-form").forEach((form) => {
+    form.addEventListener("submit", handleQuickTxSubmit);
+    form.querySelectorAll(".quick-tx-close, .quick-tx-done").forEach((button) => {
+      button.addEventListener("click", () => closeQuickTxDialog(form));
+    });
+    form.querySelector(".quick-tx-another")?.addEventListener("click", () => resetQuickTxForm(form));
+    form.querySelector(".quick-tx-confirm-suggestion")?.addEventListener("click", () => {
+      void confirmOtherQuickTransaction(form);
+    });
+    form.querySelector(".quick-tx-reject-suggestion")?.addEventListener("click", () => {
+      hideOtherQuickTxSuggestion(form);
+    });
+  });
+
+  updateQuickTxCurrencyPrefixes();
+}
+
+function updateQuickTxCurrencyPrefixes() {
+  const symbol = getCurrencyMeta(state.companySetup?.currency)?.symbol || "₦";
+  document.querySelectorAll("[data-quick-tx-currency-prefix]").forEach((node) => {
+    node.textContent = symbol;
+  });
+}
+
+function getQuickTxDialog(type) {
+  const dialogId = quickTxDialogIds[type];
+  return dialogId ? document.querySelector(`#${dialogId}`) : null;
+}
+
+function openQuickTxModal(type) {
+  const dialog = getQuickTxDialog(type);
+  if (!dialog) {
+    return;
+  }
+
+  const form = dialog.querySelector(".quick-tx-form");
+  if (form) {
+    resetQuickTxForm(form);
+    const dateInput = form.querySelector('input[name="date"]');
+    if (dateInput) {
+      dateInput.value = getTodayDate();
+    }
+  }
+
+  updateQuickTxCurrencyPrefixes();
+  dialog.showModal();
+}
+
+function closeQuickTxDialog(formOrDialog) {
+  const dialog =
+    formOrDialog instanceof HTMLDialogElement
+      ? formOrDialog
+      : formOrDialog?.closest("dialog");
+  if (dialog?.open) {
+    dialog.close();
+  }
+}
+
+function resetQuickTxForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+
+  form.reset();
+  quickTxState.otherSuggestion = null;
+  const dateInput = form.querySelector('input[name="date"]');
+  if (dateInput) {
+    dateInput.value = getTodayDate();
+  }
+
+  const paymentCash = form.querySelector('input[name="paymentMethod"][value="cash"]');
+  if (paymentCash) {
+    paymentCash.checked = true;
+  }
+
+  hideQuickTxError(form);
+  hideOtherQuickTxSuggestion(form);
+  form.querySelector(".quick-tx-form-body")?.classList.remove("hidden");
+  form.querySelector(".quick-tx-form-actions")?.classList.remove("hidden");
+  form.querySelector(".quick-tx-success")?.classList.add("hidden");
+  const submitButton = form.querySelector(".quick-tx-submit");
+  if (submitButton) {
+    submitButton.disabled = false;
+    submitButton.textContent = "Record this";
+  }
+}
+
+function showQuickTxSuccess(form) {
+  form.querySelector(".quick-tx-form-body")?.classList.add("hidden");
+  form.querySelector(".quick-tx-form-actions")?.classList.add("hidden");
+  form.querySelector(".quick-tx-success")?.classList.remove("hidden");
+}
+
+function showQuickTxError(form, message) {
+  const errorNode = form.querySelector(".quick-tx-form-error");
+  if (!errorNode) {
+    return;
+  }
+
+  errorNode.textContent = message;
+  errorNode.classList.remove("hidden");
+}
+
+function hideQuickTxError(form) {
+  const errorNode = form.querySelector(".quick-tx-form-error");
+  if (!errorNode) {
+    return;
+  }
+
+  errorNode.textContent = "";
+  errorNode.classList.add("hidden");
+}
+
+function readQuickTxForm(form) {
+  const formData = new FormData(form);
+  return {
+    type: form.dataset.quickTxType || "",
+    description: String(formData.get("description") || "").trim(),
+    amount: Number(formData.get("amount")),
+    date: String(formData.get("date") || getTodayDate()).trim(),
+    paymentMethod: String(formData.get("paymentMethod") || "cash").trim(),
+    partyName: String(formData.get("partyName") || "").trim(),
+  };
+}
+
+async function handleQuickTxSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!(form instanceof HTMLFormElement) || quickTxState.busy) {
+    return;
+  }
+
+  hideQuickTxError(form);
+  const payload = readQuickTxForm(form);
+
+  if (!Number.isFinite(payload.amount) || payload.amount <= 0) {
+    showQuickTxError(form, "Enter an amount greater than zero.");
+    return;
+  }
+
+  if (payload.type === "expense" && !payload.description) {
+    showQuickTxError(form, "Tell us what you paid for.");
+    return;
+  }
+
+  if (payload.type === "other" && !payload.description) {
+    showQuickTxError(form, "Describe what happened.");
+    return;
+  }
+
+  if (payload.type === "other" && quickTxState.otherSuggestion) {
+    await confirmOtherQuickTransaction(form);
+    return;
+  }
+
+  if (payload.type === "other") {
+    await previewOtherQuickTransaction(form, payload);
+    return;
+  }
+
+  await submitQuickTransaction(form, payload);
+}
+
+async function previewOtherQuickTransaction(form, payload) {
+  const submitButton = form.querySelector(".quick-tx-submit");
+  quickTxState.busy = true;
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Checking…";
+  }
+
+  try {
+    const response = await apiFetch("/api/quick-transactions", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "other",
+        confirmed: false,
+        description: payload.description,
+        amount: payload.amount,
+        date: payload.date,
+      }),
+    });
+
+    if (!response?.preview || !response?.suggestion) {
+      throw new Error("We could not suggest a transaction type right now.");
+    }
+
+    quickTxState.otherSuggestion = response.suggestion;
+    const suggestionBox = form.querySelector("[data-quick-tx-ai-suggestion]");
+    const suggestionText = suggestionBox?.querySelector(".quick-tx-ai-suggestion-text");
+    if (suggestionText) {
+      suggestionText.textContent = `Looks like ${response.suggestion.label} — is that right?`;
+    }
+    suggestionBox?.classList.remove("hidden");
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Record this";
+    }
+  } catch (error) {
+    showQuickTxError(form, error.message || "Unable to classify this transaction.");
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Record this";
+    }
+  } finally {
+    quickTxState.busy = false;
+  }
+}
+
+function hideOtherQuickTxSuggestion(form) {
+  quickTxState.otherSuggestion = null;
+  const suggestionBox = form.querySelector("[data-quick-tx-ai-suggestion]");
+  suggestionBox?.classList.add("hidden");
+  const suggestionText = suggestionBox?.querySelector(".quick-tx-ai-suggestion-text");
+  if (suggestionText) {
+    suggestionText.textContent = "";
+  }
+}
+
+async function confirmOtherQuickTransaction(form) {
+  if (!quickTxState.otherSuggestion || quickTxState.busy) {
+    return;
+  }
+
+  const payload = readQuickTxForm(form);
+  await submitQuickTransaction(form, {
+    ...payload,
+    type: "other",
+    confirmed: true,
+    resolvedType: quickTxState.otherSuggestion.type,
+    paymentMethod: quickTxState.otherSuggestion.paymentMethod || payload.paymentMethod,
+    partyName: payload.partyName || quickTxState.otherSuggestion.partyName || "",
+  });
+}
+
+async function submitQuickTransaction(form, payload) {
+  const submitButton = form.querySelector(".quick-tx-submit");
+  quickTxState.busy = true;
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Recording…";
+  }
+
+  try {
+    const requestBody = {
+      type: payload.type,
+      description: payload.description,
+      amount: payload.amount,
+      date: payload.date,
+      paymentMethod: payload.paymentMethod,
+      partyName: payload.partyName,
+    };
+
+    if (payload.type === "other" && payload.confirmed) {
+      requestBody.confirmed = true;
+      requestBody.resolvedType = payload.resolvedType;
+    }
+
+    const response = await apiFetch("/api/quick-transactions", {
+      method: "POST",
+      body: JSON.stringify(requestBody),
+    });
+
+    if (response?.journalEntry) {
+      state.journalEntries = syncSystemJournalEntry([
+        normalizeJournalEntryFromApi(response.journalEntry),
+        ...state.journalEntries.filter((entry) => entry.id !== response.journalEntry.id),
+      ]);
+    }
+
+    await refreshWorkspaceData();
+    showToast("✓ Recorded successfully");
+    hideOtherQuickTxSuggestion(form);
+    quickTxState.otherSuggestion = null;
+    showQuickTxSuccess(form);
+  } catch (error) {
+    showQuickTxError(form, error.message || "Unable to record this transaction.");
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Record this";
+    }
+  } finally {
+    quickTxState.busy = false;
   }
 }
 
@@ -5828,13 +6947,24 @@ function sortIncomeStatementRows(rows) {
 }
 
 function isCostOfGoodsSoldAccount(account) {
-  return (
-    account.type === "Expense" &&
-    (isAccountCodeInRange(account, 5000, 5999) ||
-      /(cost of goods sold|cost of sales|\bcogs\b|direct (labou?r|materials?)|materials used|subcontract|job cost|inventory usage|cost of services?)/i.test(
-        account.name,
-      ))
-  );
+  if (account.type !== "Expense") {
+    return false;
+  }
+
+  if (!isAccountCodeInRange(account, 5000, 5999)) {
+    return false;
+  }
+
+  const accountName = String(account.name || "").toLowerCase();
+  const cogsNamePatterns = [
+    /cost of goods/i,
+    /cost of sales/i,
+    /\bpurchases?\b/i,
+    /direct materials/i,
+    /direct labou?r/i,
+  ];
+
+  return cogsNamePatterns.some((pattern) => pattern.test(accountName));
 }
 
 function isOtherIncomeStatementIncomeAccount(account) {
@@ -5921,12 +7051,17 @@ function buildIncomeStatementReport(journalEntries = state.journalEntries) {
   const totalRevenue = normalizeStatementAmount(
     sortedRevenueAccounts.reduce((sum, row) => sum + row.amount, 0),
   );
-  const totalCogs = normalizeStatementAmount(sortedCogsAccounts.reduce((sum, row) => sum + row.amount, 0));
-  const grossProfit = normalizeStatementAmount(totalRevenue - totalCogs);
+  const hasCogs = sortedCogsAccounts.length > 0;
+  const totalCogs = hasCogs
+    ? normalizeStatementAmount(sortedCogsAccounts.reduce((sum, row) => sum + row.amount, 0))
+    : 0;
+  const grossProfit = hasCogs ? normalizeStatementAmount(totalRevenue - totalCogs) : 0;
   const operatingExpenses = normalizeStatementAmount(
     sortedOperatingExpenseAccounts.reduce((sum, row) => sum + row.amount, 0),
   );
-  const operatingIncome = normalizeStatementAmount(grossProfit - operatingExpenses);
+  const operatingIncome = normalizeStatementAmount(
+    (hasCogs ? grossProfit : totalRevenue) - operatingExpenses,
+  );
   const totalOtherIncome = normalizeStatementAmount(
     sortedOtherIncomeAccounts.reduce((sum, row) => sum + row.amount, 0),
   );
@@ -5960,7 +7095,7 @@ function buildIncomeStatementReport(journalEntries = state.journalEntries) {
     totalOtherExpense,
     totalOther,
     netIncome,
-    hasCogs: sortedCogsAccounts.length > 0,
+    hasCogs,
     hasOther: otherAccounts.length > 0,
     hasActivity:
       sortedRevenueAccounts.length > 0 ||
@@ -7122,11 +8257,11 @@ function formatDate(value) {
     return "";
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-GB", {
+    day: "2-digit",
     month: "short",
-    day: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
+    year: "numeric",
+  });
 }
 
 function formatLongDate(value) {

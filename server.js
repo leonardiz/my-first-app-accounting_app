@@ -250,6 +250,7 @@ app.get("/api/bootstrap", async (req, res) => {
       journalEntries: journalEntries.map(serializeJournalEntry),
       invoices: invoices.map(serializeInvoice),
       bills: bills.map(serializeBill),
+      shouldShowOnboarding: shouldShowOnboardingWizard(activeCompany, accounts, journalEntries),
     });
   } catch (error) {
     return sendServerError(res, error, "Failed to load workspace data.");
@@ -707,6 +708,246 @@ app.delete("/api/bills/:id", async (req, res) => {
   }
 });
 
+app.post("/api/onboarding/opening-capital", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    if (activeCompany.onboardingComplete) {
+      return res.status(409).json({ error: "Onboarding is already complete." });
+    }
+
+    const payload = normalizeOnboardingOpeningCapitalPayload(req.body || {});
+    const companyName = activeCompany.name || "your business";
+    const existingEntry = await JournalEntry.findOne({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      sourceType: "onboarding",
+      sourceId: "opening-capital",
+    });
+    if (existingEntry) {
+      return res.status(409).json({ error: "Opening capital has already been recorded." });
+    }
+
+    const [cashAccount, bankAccount, capitalAccount] = await Promise.all([
+      ensureCompanyAccount(req.user._id, activeCompany._id, {
+        code: "1000",
+        name: "Cash",
+        type: "Asset",
+      }),
+      payload.splitBank
+        ? ensureCompanyAccount(req.user._id, activeCompany._id, {
+            code: "1010",
+            name: "Bank",
+            type: "Asset",
+          })
+        : Promise.resolve(null),
+      ensureCompanyAccount(req.user._id, activeCompany._id, {
+        code: "3000",
+        name: "Owner's Equity / Capital",
+        type: "Equity",
+      }),
+    ]);
+
+    const lines = [];
+    if (payload.splitBank && bankAccount) {
+      if (payload.cashAmount > 0) {
+        lines.push({
+          accountId: cashAccount._id,
+          debit: payload.cashAmount,
+          credit: 0,
+        });
+      }
+      if (payload.bankAmount > 0) {
+        lines.push({
+          accountId: bankAccount._id,
+          debit: payload.bankAmount,
+          credit: 0,
+        });
+      }
+    } else {
+      lines.push({
+        accountId: cashAccount._id,
+        debit: payload.totalAmount,
+        credit: 0,
+      });
+    }
+
+    lines.push({
+      accountId: capitalAccount._id,
+      debit: 0,
+      credit: payload.totalAmount,
+    });
+
+    const journalEntry = await JournalEntry.create({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      date: payload.date,
+      description: `Opening capital — ${companyName}`,
+      sourceType: "onboarding",
+      sourceId: "opening-capital",
+      lines,
+    });
+
+    return res.status(201).json({
+      journalEntry: serializeJournalEntry(journalEntry),
+      openingCapitalAmount: payload.totalAmount,
+    });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to record opening capital.");
+  }
+});
+
+app.post("/api/onboarding/initial-purchase", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    if (activeCompany.onboardingComplete) {
+      return res.status(409).json({ error: "Onboarding is already complete." });
+    }
+
+    const payload = normalizeOnboardingInitialPurchasePayload(req.body || {});
+    const existingEntry = await JournalEntry.findOne({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      sourceType: "onboarding",
+      sourceId: "initial-purchase",
+    });
+    if (existingEntry) {
+      return res.status(409).json({ error: "Initial purchase has already been recorded." });
+    }
+
+    const [purchasesAccount, cashAccount] = await Promise.all([
+      ensureCompanyAccount(req.user._id, activeCompany._id, {
+        code: "1500",
+        name: "Purchases / Inventory",
+        type: "Asset",
+      }),
+      ensureCompanyAccount(req.user._id, activeCompany._id, {
+        code: "1000",
+        name: "Cash",
+        type: "Asset",
+      }),
+    ]);
+
+    const journalEntry = await JournalEntry.create({
+      userId: req.user._id,
+      companyId: activeCompany._id,
+      date: payload.date,
+      description: payload.description,
+      sourceType: "onboarding",
+      sourceId: "initial-purchase",
+      lines: [
+        {
+          accountId: purchasesAccount._id,
+          debit: payload.amount,
+          credit: 0,
+        },
+        {
+          accountId: cashAccount._id,
+          debit: 0,
+          credit: payload.amount,
+        },
+      ],
+    });
+
+    return res.status(201).json({
+      journalEntry: serializeJournalEntry(journalEntry),
+      purchaseAmount: payload.amount,
+      purchaseDescription: payload.description,
+    });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to record initial purchase.");
+  }
+});
+
+app.post("/api/onboarding/complete", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const company = await Company.findOneAndUpdate(
+      { _id: activeCompany._id, userId: req.user._id },
+      { $set: { onboardingComplete: true } },
+      { new: true },
+    );
+    if (!company) {
+      return res.status(404).json({ error: "Company not found." });
+    }
+
+    return res.json({ company: serializeCompany(company) });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to complete onboarding.");
+  }
+});
+
+app.post("/api/onboarding/skip", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const company = await Company.findOneAndUpdate(
+      { _id: activeCompany._id, userId: req.user._id },
+      { $set: { onboardingComplete: true } },
+      { new: true },
+    );
+    if (!company) {
+      return res.status(404).json({ error: "Company not found." });
+    }
+
+    return res.json({ company: serializeCompany(company) });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to skip onboarding.");
+  }
+});
+
+app.post("/api/quick-transactions", async (req, res) => {
+  try {
+    const activeCompany = await requireActiveCompany(req.user);
+    const body = req.body || {};
+    const type = sanitizeText(body.type || "", 40).toLowerCase();
+
+    if (!type) {
+      return res.status(400).json({ error: "Transaction type is required." });
+    }
+
+    if (type === "other" && !body.confirmed) {
+      const description = sanitizeText(body.description || "", 500);
+      if (!description) {
+        return res.status(400).json({ error: "Describe what happened before continuing." });
+      }
+      const amount = parseNumberField(body.amount, "Amount");
+      if (amount <= 0) {
+        return res.status(400).json({ error: "Amount must be greater than zero." });
+      }
+      const suggestion = await classifyOtherQuickTransaction(
+        req.user._id,
+        activeCompany._id,
+        description,
+        amount,
+      );
+      return res.json({ preview: true, suggestion });
+    }
+
+    const recordType =
+      type === "other" && body.confirmed
+        ? sanitizeText(body.resolvedType || "", 40).toLowerCase()
+        : type;
+
+    if (type === "other" && body.confirmed && !quickTransactionTypes.has(recordType)) {
+      return res.status(400).json({ error: "Confirmed transaction type is required." });
+    }
+
+    const payload = normalizeQuickTransactionPayload(body, recordType);
+    const journalEntry = await postQuickTransactionByType(
+      req.user._id,
+      activeCompany._id,
+      activeCompany.name || "your business",
+      recordType,
+      payload,
+    );
+
+    return res.status(201).json({
+      journalEntry: serializeJournalEntry(journalEntry),
+    });
+  } catch (error) {
+    return sendServerError(res, error, "Failed to record quick transaction.");
+  }
+});
+
 app.post("/api/journal-entries", async (req, res) => {
   try {
     const activeCompany = await requireActiveCompany(req.user);
@@ -1020,6 +1261,7 @@ function serializeCompany(company) {
       currency: "NGN",
       financialYearStart: "",
       billApprovalThreshold: 100000,
+      onboardingComplete: false,
     };
   }
 
@@ -1039,6 +1281,7 @@ function serializeCompany(company) {
     billApprovalThreshold: Number.isFinite(Number(company.billApprovalThreshold))
       ? Number(company.billApprovalThreshold)
       : 100000,
+    onboardingComplete: Boolean(company.onboardingComplete),
   };
 }
 
@@ -1449,6 +1692,441 @@ function isBillOverdue(dueDate) {
 
 function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function shouldShowOnboardingWizard(company, accounts, journalEntries) {
+  if (!company?._id) {
+    return false;
+  }
+
+  if (!String(company.name || "").trim()) {
+    return false;
+  }
+
+  if (company.onboardingComplete) {
+    return false;
+  }
+
+  const entries = journalEntries || [];
+  const hasOnboardingEntries = entries.some((entry) => String(entry?.sourceType || "").trim() === "onboarding");
+  if (hasOnboardingEntries) {
+    return true;
+  }
+
+  const hasOtherEntries = entries.some((entry) => {
+    const sourceType = String(entry?.sourceType || "").trim();
+    return sourceType && sourceType !== "onboarding" && sourceType !== "system";
+  });
+  if (hasOtherEntries) {
+    return false;
+  }
+
+  if (!hasOnlyDefaultOnboardingAccounts(accounts)) {
+    return false;
+  }
+
+  return true;
+}
+
+function hasOnlyDefaultOnboardingAccounts(accounts) {
+  if (!accounts?.length) {
+    return true;
+  }
+
+  return accounts.every((account) => isDefaultOnboardingAccount(account));
+}
+
+function isDefaultOnboardingAccount(account) {
+  const code = String(account?.code || "").trim();
+  const name = String(account?.name || "").trim().toLowerCase();
+  return (
+    code === "3000" &&
+    (name.includes("opening balance equity") || name.includes("owner's equity") || name.includes("owners equity"))
+  );
+}
+
+function normalizeOnboardingOpeningCapitalPayload(payload) {
+  const totalAmount = parseNumberField(payload.amount ?? payload.totalAmount, "Opening capital amount");
+  if (totalAmount <= 0) {
+    throw createHttpError(400, "Opening capital amount must be greater than zero.");
+  }
+
+  const date = sanitizeDateInput(payload.date || new Date().toISOString().slice(0, 10));
+  const splitBank = Boolean(payload.splitBank);
+  let cashAmount = totalAmount;
+  let bankAmount = 0;
+
+  if (splitBank) {
+    cashAmount = parseNumberField(payload.cashAmount, "Cash amount");
+    bankAmount = parseNumberField(payload.bankAmount, "Bank amount");
+    if (cashAmount < 0 || bankAmount < 0) {
+      throw createHttpError(400, "Cash and bank amounts must be zero or greater.");
+    }
+    if (roundMoney(cashAmount + bankAmount) !== roundMoney(totalAmount)) {
+      throw createHttpError(400, "Cash and bank amounts must add up to the total opening capital.");
+    }
+    if (cashAmount <= 0 && bankAmount <= 0) {
+      throw createHttpError(400, "Enter a cash or bank amount when splitting opening capital.");
+    }
+  }
+
+  return {
+    totalAmount: roundMoney(totalAmount),
+    date,
+    splitBank,
+    cashAmount: roundMoney(cashAmount),
+    bankAmount: roundMoney(bankAmount),
+  };
+}
+
+function normalizeOnboardingInitialPurchasePayload(payload) {
+  const description = sanitizeText(payload.description || "Initial purchase", 240);
+  const amount = parseNumberField(payload.amount, "Purchase amount");
+  if (amount <= 0) {
+    throw createHttpError(400, "Purchase amount must be greater than zero.");
+  }
+
+  const date = sanitizeDateInput(payload.date || new Date().toISOString().slice(0, 10));
+  return {
+    description,
+    amount: roundMoney(amount),
+    date,
+  };
+}
+
+const quickTransactionTypes = new Set([
+  "sale",
+  "expense",
+  "received_payment",
+  "paid_supplier",
+]);
+
+function normalizeQuickTransactionPayload(body, type) {
+  if (!quickTransactionTypes.has(type) && type !== "other") {
+    throw createHttpError(400, "Unsupported transaction type.");
+  }
+
+  const amount = parseNumberField(body.amount, "Amount");
+  if (amount <= 0) {
+    throw createHttpError(400, "Amount must be greater than zero.");
+  }
+
+  const date = sanitizeDateInput(body.date || new Date().toISOString().slice(0, 10));
+  const description = sanitizeText(body.description || "", 240);
+  const partyName = sanitizeText(body.partyName || "", 120);
+  const paymentMethod = sanitizeText(body.paymentMethod || "cash", 24).toLowerCase();
+
+  if (type === "expense" && !description) {
+    throw createHttpError(400, "What you paid for is required.");
+  }
+
+  if (type === "sale" && paymentMethod !== "cash" && paymentMethod !== "credit") {
+    throw createHttpError(400, "Choose cash or credit for this sale.");
+  }
+
+  if (type === "expense" && !["cash", "bank", "card"].includes(paymentMethod)) {
+    throw createHttpError(400, "Choose how you paid for this expense.");
+  }
+
+  return {
+    amount: roundMoney(amount),
+    date,
+    description,
+    partyName,
+    paymentMethod,
+  };
+}
+
+function buildQuickTransactionDescription(prefix, payload) {
+  const parts = [prefix];
+  if (payload.description) {
+    parts.push(payload.description);
+  }
+  if (payload.partyName) {
+    parts.push(payload.partyName);
+  }
+  return sanitizeText(parts.filter(Boolean).join(" — "), 240);
+}
+
+function buildQuickTransactionSourceId(type) {
+  return `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function postQuickTransactionByType(userId, companyId, companyName, type, payload) {
+  switch (type) {
+    case "sale":
+      return postQuickSale(userId, companyId, payload);
+    case "expense":
+      return postQuickExpense(userId, companyId, payload);
+    case "received_payment":
+      return postQuickReceivedPayment(userId, companyId, payload);
+    case "paid_supplier":
+      return postQuickPaidSupplier(userId, companyId, payload);
+    default:
+      throw createHttpError(400, "This transaction type could not be recorded.");
+  }
+}
+
+async function postQuickSale(userId, companyId, payload) {
+  const [cashAccount, receivableAccount, revenueAccount] = await Promise.all([
+    ensureCompanyAccount(userId, companyId, { code: "1000", name: "Cash", type: "Asset" }),
+    ensureCompanyAccount(userId, companyId, {
+      code: "1100",
+      name: "Accounts Receivable",
+      type: "Asset",
+    }),
+    ensureCompanyAccount(userId, companyId, { code: "4000", name: "Sales Revenue", type: "Revenue" }),
+  ]);
+
+  const isCredit = payload.paymentMethod === "credit";
+  const debitAccount = isCredit ? receivableAccount : cashAccount;
+  const description = buildQuickTransactionDescription("Sale", payload);
+
+  return JournalEntry.create({
+    userId,
+    companyId,
+    date: payload.date,
+    description,
+    sourceType: "quick_transaction",
+    sourceId: buildQuickTransactionSourceId("sale"),
+    lines: [
+      { accountId: debitAccount._id, debit: payload.amount, credit: 0 },
+      { accountId: revenueAccount._id, debit: 0, credit: payload.amount },
+    ],
+  });
+}
+
+async function postQuickExpense(userId, companyId, payload) {
+  const expenseAccount = await resolveQuickExpenseAccount(userId, companyId, payload.description);
+  const creditAccount = await resolveQuickPaymentAccount(userId, companyId, payload.paymentMethod);
+  const description = buildQuickTransactionDescription("Expense", payload);
+
+  return JournalEntry.create({
+    userId,
+    companyId,
+    date: payload.date,
+    description,
+    sourceType: "quick_transaction",
+    sourceId: buildQuickTransactionSourceId("expense"),
+    lines: [
+      { accountId: expenseAccount._id, debit: payload.amount, credit: 0 },
+      { accountId: creditAccount._id, debit: 0, credit: payload.amount },
+    ],
+  });
+}
+
+async function postQuickReceivedPayment(userId, companyId, payload) {
+  const [cashAccount, receivableAccount] = await Promise.all([
+    ensureCompanyAccount(userId, companyId, { code: "1000", name: "Cash", type: "Asset" }),
+    ensureCompanyAccount(userId, companyId, {
+      code: "1100",
+      name: "Accounts Receivable",
+      type: "Asset",
+    }),
+  ]);
+
+  const description = buildQuickTransactionDescription("Customer payment received", payload);
+
+  return JournalEntry.create({
+    userId,
+    companyId,
+    date: payload.date,
+    description,
+    sourceType: "quick_transaction",
+    sourceId: buildQuickTransactionSourceId("received_payment"),
+    lines: [
+      { accountId: cashAccount._id, debit: payload.amount, credit: 0 },
+      { accountId: receivableAccount._id, debit: 0, credit: payload.amount },
+    ],
+  });
+}
+
+async function postQuickPaidSupplier(userId, companyId, payload) {
+  const [payableAccount, cashAccount] = await Promise.all([
+    ensureCompanyAccount(userId, companyId, {
+      code: "2000",
+      name: "Accounts Payable",
+      type: "Liability",
+    }),
+    ensureCompanyAccount(userId, companyId, { code: "1000", name: "Cash", type: "Asset" }),
+  ]);
+
+  const description = buildQuickTransactionDescription("Supplier payment", payload);
+
+  return JournalEntry.create({
+    userId,
+    companyId,
+    date: payload.date,
+    description,
+    sourceType: "quick_transaction",
+    sourceId: buildQuickTransactionSourceId("paid_supplier"),
+    lines: [
+      { accountId: payableAccount._id, debit: payload.amount, credit: 0 },
+      { accountId: cashAccount._id, debit: 0, credit: payload.amount },
+    ],
+  });
+}
+
+async function resolveQuickPaymentAccount(userId, companyId, paymentMethod) {
+  if (paymentMethod === "bank") {
+    return ensureCompanyAccount(userId, companyId, { code: "1010", name: "Bank", type: "Asset" });
+  }
+
+  return ensureCompanyAccount(userId, companyId, { code: "1000", name: "Cash", type: "Asset" });
+}
+
+async function resolveQuickExpenseAccount(userId, companyId, description) {
+  const expenseAccounts = await Account.find({
+    userId,
+    companyId,
+    type: "Expense",
+  }).sort({ code: 1, name: 1 });
+
+  const classification = await classifyExpenseDescription(description, expenseAccounts);
+  if (classification?.existingAccountId) {
+    const matched = expenseAccounts.find(
+      (account) => account._id.toString() === classification.existingAccountId,
+    );
+    if (matched) {
+      return matched;
+    }
+  }
+
+  if (classification?.accountName) {
+    return ensureCompanyAccount(userId, companyId, {
+      code: "6000",
+      name: classification.accountName,
+      type: "Expense",
+    });
+  }
+
+  const derivedName = deriveBillExpenseAccountName(description);
+  const existingDerived = expenseAccounts.find(
+    (account) => account.name.toLowerCase() === derivedName.toLowerCase(),
+  );
+  if (existingDerived) {
+    return existingDerived;
+  }
+
+  return ensureCompanyAccount(userId, companyId, {
+    code: "6000",
+    name: derivedName,
+    type: "Expense",
+  });
+}
+
+async function classifyExpenseDescription(description, expenseAccounts) {
+  const accountList = expenseAccounts.map((account) => ({
+    id: account._id.toString(),
+    name: account.name,
+    code: account.code,
+  }));
+
+  const parsed = await requestGroqJson({
+    system:
+      'Classify a business expense. Reply with JSON only: {"existingAccountId":"","accountName":"General Expense","useExisting":true}. If an existing account fits, set useExisting true and existingAccountId to that id. Otherwise set useExisting false and accountName to a short plain-language expense name without accounting jargon.',
+    user: `Expense description: ${description}\nExisting expense accounts: ${JSON.stringify(accountList)}`,
+  });
+
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  if (parsed.useExisting && parsed.existingAccountId) {
+    return { existingAccountId: String(parsed.existingAccountId) };
+  }
+
+  const accountName = sanitizeText(parsed.accountName || "", 80);
+  if (accountName) {
+    return { accountName };
+  }
+
+  return null;
+}
+
+async function classifyOtherQuickTransaction(userId, companyId, description, amount) {
+  const parsed = await requestGroqJson({
+    system:
+      'Classify a plain-language business event. Reply with JSON only: {"type":"sale|expense|received_payment|paid_supplier","label":"a sale","paymentMethod":"cash|credit|bank|card","partyName":""}. Use plain labels like "a sale", "an expense", "a customer payment", "a supplier payment". Pick the closest type.',
+    user: `Description: ${description}\nAmount: ${amount}`,
+  });
+
+  const fallbackType = inferOtherQuickTransactionType(description);
+  const type = quickTransactionTypes.has(parsed?.type) ? parsed.type : fallbackType;
+  const labelMap = {
+    sale: "a sale",
+    expense: "an expense",
+    received_payment: "a customer payment",
+    paid_supplier: "a supplier payment",
+  };
+
+  return {
+    type,
+    label: sanitizeText(parsed?.label || labelMap[type] || "a business transaction", 80),
+    paymentMethod: ["cash", "credit", "bank", "card"].includes(parsed?.paymentMethod)
+      ? parsed.paymentMethod
+      : type === "sale"
+        ? "cash"
+        : "cash",
+    partyName: sanitizeText(parsed?.partyName || "", 120),
+  };
+}
+
+function inferOtherQuickTransactionType(description) {
+  const text = String(description || "").toLowerCase();
+  if (/(customer|client).*(paid|payment)/.test(text) || /(paid|payment).*(customer|client)/.test(text)) {
+    return "received_payment";
+  }
+  if (/(supplier|vendor).*(paid|payment)/.test(text) || /(paid|payment).*(supplier|vendor)/.test(text)) {
+    return "paid_supplier";
+  }
+  if (/(sold|sale|invoice|revenue)/.test(text)) {
+    return "sale";
+  }
+  if (/(paid|spent|purchase|expense|rent|fuel|salary|wages)/.test(text)) {
+    return "expense";
+  }
+  return "expense";
+}
+
+async function requestGroqJson({ system, user }) {
+  if (!groqApiKey) {
+    return null;
+  }
+
+  try {
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${groqApiKey}`,
+      },
+      body: JSON.stringify({
+        model: groqModel,
+        temperature: 0.2,
+        max_tokens: 220,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+
+    const data = await groqResponse.json();
+    if (!groqResponse.ok) {
+      return null;
+    }
+
+    const text = data?.choices?.[0]?.message?.content || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return null;
+    }
+
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return null;
+  }
 }
 
 function calculateTaxAmount(subtotal, totalAmount, taxPercentage) {
