@@ -24,6 +24,7 @@ const groqApiKey = process.env.GROQ_API_KEY || "";
 const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const mongoUri = process.env.MONGODB_URI || "";
 const jwtSecret = process.env.JWT_SECRET || "";
+const jwtMinLength = 32;
 const smtpHost = process.env.SMTP_HOST || "";
 const smtpPort = Number(process.env.SMTP_PORT) || 0;
 const smtpUser = process.env.SMTP_USER || "";
@@ -1176,6 +1177,10 @@ async function start() {
 
   if (!jwtSecret) {
     throw new Error("JWT_SECRET is not configured.");
+  }
+
+  if (jwtSecret.length < jwtMinLength) {
+    throw new Error(`JWT_SECRET must be at least ${jwtMinLength} characters for adequate security.`);
   }
 
   await mongoose.connect(mongoUri);
@@ -2466,7 +2471,7 @@ function getMailTransport() {
       pass: smtpPass,
     },
     tls: {
-      rejectUnauthorized: false,
+      rejectUnauthorized: isProduction,
     },
   });
 }
@@ -2483,7 +2488,7 @@ async function sendEmail({ to, subject, text, html }) {
     return false;
   }
 
-  console.log(`Sending email to ${to}: ${subject}`);
+  console.log(`Sending email: ${subject}`);
   try {
     await transport.sendMail({
       from: smtpUser,
@@ -2492,10 +2497,10 @@ async function sendEmail({ to, subject, text, html }) {
       text,
       html,
     });
-    console.log(`Email sent to ${to}`);
+    console.log(`Email sent successfully: ${subject}`);
     return true;
   } catch (error) {
-    console.log(`Email failed: ${error.message}`);
+    console.error("Email delivery failed.");
     throw error;
   }
 }
@@ -2521,7 +2526,7 @@ async function sendWelcomeEmail(user) {
       <p><a href="${escapeHtml(appBaseUrl)}">Open LedgrAI</a></p>
     `,
   }).catch((error) => {
-    console.error(`Failed to send welcome email to ${user.email}.`, error);
+    console.error("Failed to send welcome email.", error);
   });
 }
 
@@ -3126,10 +3131,5 @@ function sendServerError(res, error, message) {
     return res.status(400).json({ error: "Invalid request data." });
   }
 
-  const response = { error: message };
-  if (!isProduction) {
-    response.details = error instanceof Error ? error.message : String(error);
-  }
-
-  return res.status(500).json(response);
+  return res.status(500).json({ error: message });
 }
