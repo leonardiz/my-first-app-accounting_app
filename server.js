@@ -10,6 +10,21 @@ const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
+const {
+  escapeHtml,
+  sanitizeRequestBody,
+  sanitizeRawString,
+  sanitizeText,
+  sanitizeEmail,
+  sanitizeUppercaseCode,
+  sanitizeDateInput,
+  parseNumberField,
+} = require("./utils/sanitize");
+const { createHttpError, sendServerError: baseSendServerError } = require("./utils/errors");
+const { roundMoney, calculateTaxAmount, formatCurrencyAmount } = require("./utils/money");
+const { isOverdue, getDaysOverdue, deriveDocumentStatus, shouldResetOverdueNotification } = require("./utils/overdue");
+const { normalizeDocumentLine, generateNextDocumentNumber, serializeLineItems } = require("./utils/documentHelpers");
+
 const User = require("./models/User");
 const Company = require("./models/Company");
 const Account = require("./models/Account");
@@ -34,6 +49,10 @@ const isProduction = process.env.NODE_ENV === "production";
 const allowedAccountTypes = new Set(["Asset", "Liability", "Equity", "Revenue", "Expense"]);
 const schedulerTimezone = "Africa/Lagos";
 let schedulerInitialized = false;
+
+function sendServerError(res, error, message) {
+  return baseSendServerError(res, error, message, isProduction);
+}
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
@@ -858,19 +877,23 @@ app.post("/api/onboarding/initial-purchase", async (req, res) => {
   }
 });
 
+async function finalizeOnboarding(req, res, errorMessage) {
+  const activeCompany = await requireActiveCompany(req.user);
+  const company = await Company.findOneAndUpdate(
+    { _id: activeCompany._id, userId: req.user._id },
+    { $set: { onboardingComplete: true } },
+    { new: true },
+  );
+  if (!company) {
+    return res.status(404).json({ error: "Company not found." });
+  }
+
+  return res.json({ company: serializeCompany(company) });
+}
+
 app.post("/api/onboarding/complete", async (req, res) => {
   try {
-    const activeCompany = await requireActiveCompany(req.user);
-    const company = await Company.findOneAndUpdate(
-      { _id: activeCompany._id, userId: req.user._id },
-      { $set: { onboardingComplete: true } },
-      { new: true },
-    );
-    if (!company) {
-      return res.status(404).json({ error: "Company not found." });
-    }
-
-    return res.json({ company: serializeCompany(company) });
+    return await finalizeOnboarding(req, res, "Failed to complete onboarding.");
   } catch (error) {
     return sendServerError(res, error, "Failed to complete onboarding.");
   }
@@ -878,17 +901,7 @@ app.post("/api/onboarding/complete", async (req, res) => {
 
 app.post("/api/onboarding/skip", async (req, res) => {
   try {
-    const activeCompany = await requireActiveCompany(req.user);
-    const company = await Company.findOneAndUpdate(
-      { _id: activeCompany._id, userId: req.user._id },
-      { $set: { onboardingComplete: true } },
-      { new: true },
-    );
-    if (!company) {
-      return res.status(404).json({ error: "Company not found." });
-    }
-
-    return res.json({ company: serializeCompany(company) });
+    return await finalizeOnboarding(req, res, "Failed to skip onboarding.");
   } catch (error) {
     return sendServerError(res, error, "Failed to skip onboarding.");
   }
@@ -1331,12 +1344,7 @@ function serializeInvoice(invoice) {
     clientEmail: invoice.clientEmail || "",
     invoiceDate: invoice.invoiceDate || "",
     dueDate: invoice.dueDate || "",
-    lineItems: (invoice.lineItems || []).map((line) => ({
-      description: line.description || "",
-      quantity: Number(line.quantity) || 0,
-      unitPrice: Number(line.unitPrice) || 0,
-      amount: Number(line.amount) || 0,
-    })),
+    lineItems: serializeLineItems(invoice.lineItems),
     subtotal: Number(invoice.subtotal) || 0,
     taxPercentage: Number(invoice.taxPercentage) || 0,
     totalAmount: Number(invoice.totalAmount) || 0,
@@ -1365,12 +1373,7 @@ function serializeBill(bill) {
     supplierEmail: bill.supplierEmail || "",
     billDate: bill.billDate || "",
     dueDate: bill.dueDate || "",
-    lineItems: (bill.lineItems || []).map((line) => ({
-      description: line.description || "",
-      quantity: Number(line.quantity) || 0,
-      unitPrice: Number(line.unitPrice) || 0,
-      amount: Number(line.amount) || 0,
-    })),
+    lineItems: serializeLineItems(bill.lineItems),
     subtotal: Number(bill.subtotal) || 0,
     taxPercentage: Number(bill.taxPercentage) || 0,
     totalAmount: Number(bill.totalAmount) || 0,
@@ -1511,55 +1514,11 @@ async function normalizeBillPayload(payload, options = {}) {
 }
 
 function normalizeInvoiceLine(line, index) {
-  const description = sanitizeText(line?.description || "", 240);
-  const quantity = parseNumberField(line?.quantity, `Invoice line ${index + 1} quantity`);
-  const unitPrice = parseNumberField(line?.unitPrice, `Invoice line ${index + 1} unit price`);
-  const amount = quantity * unitPrice;
-
-  if (!description) {
-    throw createHttpError(400, `Invoice line ${index + 1} description is required.`);
-  }
-
-  if (quantity <= 0) {
-    throw createHttpError(400, `Invoice line ${index + 1} quantity must be greater than zero.`);
-  }
-
-  if (unitPrice < 0) {
-    throw createHttpError(400, `Invoice line ${index + 1} unit price must be zero or greater.`);
-  }
-
-  return {
-    description,
-    quantity,
-    unitPrice,
-    amount,
-  };
+  return normalizeDocumentLine(line, index, "Invoice");
 }
 
 function normalizeBillLine(line, index) {
-  const description = sanitizeText(line?.description || "", 240);
-  const quantity = parseNumberField(line?.quantity, `Bill line ${index + 1} quantity`);
-  const unitPrice = parseNumberField(line?.unitPrice, `Bill line ${index + 1} unit price`);
-  const amount = quantity * unitPrice;
-
-  if (!description) {
-    throw createHttpError(400, `Bill line ${index + 1} description is required.`);
-  }
-
-  if (quantity <= 0) {
-    throw createHttpError(400, `Bill line ${index + 1} quantity must be greater than zero.`);
-  }
-
-  if (unitPrice < 0) {
-    throw createHttpError(400, `Bill line ${index + 1} unit price must be zero or greater.`);
-  }
-
-  return {
-    description,
-    quantity,
-    unitPrice,
-    amount,
-  };
+  return normalizeDocumentLine(line, index, "Bill");
 }
 
 function normalizeJournalLine(line, index) {
@@ -1653,45 +1612,19 @@ async function backfillLegacyCompanyData(userId, companyId) {
 }
 
 async function generateNextInvoiceNumber(userId, companyId) {
-  const latestInvoice = await Invoice.findOne({ userId, companyId })
-    .sort({ createdAt: -1, invoiceNumber: -1 })
-    .lean();
-
-  const lastSequenceMatch = latestInvoice?.invoiceNumber?.match(/(\d+)$/);
-  const nextSequence = lastSequenceMatch ? Number(lastSequenceMatch[1]) + 1 : 1;
-  return `INV-${String(nextSequence).padStart(4, "0")}`;
+  return generateNextDocumentNumber(Invoice, "invoiceNumber", "INV", userId, companyId);
 }
 
 async function generateNextBillNumber(userId, companyId) {
-  const latestBill = await Bill.findOne({ userId, companyId })
-    .sort({ createdAt: -1, billNumber: -1 })
-    .lean();
-
-  const lastSequenceMatch = latestBill?.billNumber?.match(/(\d+)$/);
-  const nextSequence = lastSequenceMatch ? Number(lastSequenceMatch[1]) + 1 : 1;
-  return `BILL-${String(nextSequence).padStart(4, "0")}`;
+  return generateNextDocumentNumber(Bill, "billNumber", "BILL", userId, companyId);
 }
 
 function isInvoiceOverdue(dueDate) {
-  if (!dueDate) {
-    return false;
-  }
-
-  const today = new Date().toISOString().slice(0, 10);
-  return dueDate < today;
+  return isOverdue(dueDate);
 }
 
 function isBillOverdue(dueDate) {
-  if (!dueDate) {
-    return false;
-  }
-
-  const today = new Date().toISOString().slice(0, 10);
-  return dueDate < today;
-}
-
-function roundMoney(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
+  return isOverdue(dueDate);
 }
 
 function shouldShowOnboardingWizard(company, accounts, journalEntries) {
@@ -2089,35 +2022,40 @@ function inferOtherQuickTransactionType(description) {
   return "expense";
 }
 
-async function requestGroqJson({ system, user }) {
+async function requestGroqCompletion({ system, user, temperature = 0.2, max_tokens = 220 }) {
   if (!groqApiKey) {
     return null;
   }
 
-  try {
-    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${groqApiKey}`,
-      },
-      body: JSON.stringify({
-        model: groqModel,
-        temperature: 0.2,
-        max_tokens: 220,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
-    });
+  const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${groqApiKey}`,
+    },
+    body: JSON.stringify({
+      model: groqModel,
+      temperature,
+      max_tokens,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
 
-    const data = await groqResponse.json();
-    if (!groqResponse.ok) {
+  const data = await groqResponse.json();
+  return { ok: groqResponse.ok, data };
+}
+
+async function requestGroqJson({ system, user }) {
+  try {
+    const result = await requestGroqCompletion({ system, user, temperature: 0.2, max_tokens: 220 });
+    if (!result || !result.ok) {
       return null;
     }
 
-    const text = data?.choices?.[0]?.message?.content || "";
+    const text = result.data?.choices?.[0]?.message?.content || "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return null;
@@ -2127,22 +2065,6 @@ async function requestGroqJson({ system, user }) {
   } catch {
     return null;
   }
-}
-
-function calculateTaxAmount(subtotal, totalAmount, taxPercentage) {
-  const normalizedSubtotal = Number(subtotal) || 0;
-  const normalizedTotal = Number(totalAmount) || 0;
-  const normalizedTaxPercentage = Number(taxPercentage) || 0;
-  if (normalizedTaxPercentage <= 0) {
-    return 0;
-  }
-
-  const difference = roundMoney(normalizedTotal - normalizedSubtotal);
-  if (difference > 0) {
-    return difference;
-  }
-
-  return roundMoney(normalizedSubtotal * (normalizedTaxPercentage / 100));
 }
 
 async function ensureCompanyAccount(userId, companyId, config) {
@@ -2309,12 +2231,7 @@ async function syncInvoiceJournalEntry(userId, companyId, invoice, options = {})
 }
 
 function shouldResetInvoiceOverdueNotification(invoiceLike) {
-  const normalizedStatus = String(invoiceLike?.status || "").trim();
-  if (normalizedStatus === "Draft" || normalizedStatus === "Paid") {
-    return true;
-  }
-
-  return !isInvoiceOverdue(invoiceLike?.dueDate || "");
+  return shouldResetOverdueNotification(invoiceLike);
 }
 
 function resolveBillApprovalStatus({
@@ -2349,12 +2266,7 @@ function shouldCreateBillJournalEntry(bill) {
 }
 
 function shouldResetBillOverdueNotification(billLike) {
-  const normalizedStatus = String(billLike?.status || "").trim();
-  if (normalizedStatus === "Draft" || normalizedStatus === "Paid") {
-    return true;
-  }
-
-  return !isBillOverdue(billLike?.dueDate || "");
+  return shouldResetOverdueNotification(billLike);
 }
 
 function deriveBillExpenseAccountName(description) {
@@ -2659,17 +2571,6 @@ async function sendOverdueBillNotifications() {
   }
 }
 
-function formatCurrencyAmount(value, currencyCode = "NGN") {
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currencyCode || "NGN",
-    }).format(Number(value) || 0);
-  } catch {
-    return `${currencyCode || "NGN"} ${Number(value) || 0}`;
-  }
-}
-
 function computeCompanyFinancialMetrics({ accounts, journalEntries, invoices }) {
   const accountMap = new Map(
     (accounts || []).map((account) => [String(account._id), account]),
@@ -2751,52 +2652,11 @@ function calculateAccountClosingBalance(accountType, openingBalance, postingTota
 }
 
 function deriveInvoiceStatus(invoice) {
-  if (!invoice) {
-    return "Draft";
-  }
-
-  if (invoice.status === "Paid") {
-    return "Paid";
-  }
-
-  if (invoice.status === "Draft") {
-    return "Draft";
-  }
-
-  return isInvoiceOverdue(invoice.dueDate) ? "Overdue" : "Sent";
+  return deriveDocumentStatus(invoice, "Sent");
 }
 
 function deriveBillStatus(bill) {
-  if (!bill) {
-    return "Draft";
-  }
-
-  if (bill.status === "Paid") {
-    return "Paid";
-  }
-
-  if (bill.status === "Draft") {
-    return "Draft";
-  }
-
-  return isBillOverdue(bill.dueDate) ? "Overdue" : "Received";
-}
-
-function getDaysOverdue(dueDate) {
-  if (!dueDate) {
-    return 0;
-  }
-
-  const due = new Date(`${dueDate}T00:00:00`);
-  const today = new Date();
-  due.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-  const diffMs = today.getTime() - due.getTime();
-  if (diffMs <= 0) {
-    return 0;
-  }
-
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  return deriveDocumentStatus(bill, "Received");
 }
 
 async function notifyInvoiceIfOverdue({ user, company, previousInvoice, invoice }) {
@@ -2866,36 +2726,19 @@ async function requestWeeklyInsight(summaryPayload) {
     return "Groq insight is unavailable because GROQ_API_KEY is not configured.";
   }
 
-  const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${groqApiKey}`,
-    },
-    body: JSON.stringify({
-      model: groqModel,
-      temperature: 0.3,
-      max_tokens: 120,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a finance assistant. Return one concise practical insight based only on the supplied weekly financial summary.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify(summaryPayload),
-        },
-      ],
-    }),
+  const result = await requestGroqCompletion({
+    system:
+      "You are a finance assistant. Return one concise practical insight based only on the supplied weekly financial summary.",
+    user: JSON.stringify(summaryPayload),
+    temperature: 0.3,
+    max_tokens: 120,
   });
 
-  const data = await groqResponse.json();
-  if (!groqResponse.ok) {
-    throw new Error(data?.error?.message || data?.error || "Groq request failed.");
+  if (!result || !result.ok) {
+    throw new Error(result?.data?.error?.message || result?.data?.error || "Groq request failed.");
   }
 
-  return data?.choices?.[0]?.message?.content?.trim() || "No AI insight available this week.";
+  return result.data?.choices?.[0]?.message?.content?.trim() || "No AI insight available this week.";
 }
 
 async function sendWeeklyFinancialSummaries() {
@@ -2999,98 +2842,6 @@ function initializeSchedulers() {
   schedulerInitialized = true;
 }
 
-function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function sanitizeRequestBody(req, res, next) {
-  try {
-    req.body = sanitizeValue(req.body);
-    next();
-  } catch (error) {
-    res.status(400).json({ error: "Invalid request payload." });
-  }
-}
-
-function sanitizeValue(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeValue(item));
-  }
-
-  if (value && typeof value === "object") {
-    const sanitized = {};
-    for (const [key, nestedValue] of Object.entries(value)) {
-      if (key.includes("$") || key.includes(".")) {
-        throw createHttpError(400, "Invalid request payload.");
-      }
-      sanitized[key] = sanitizeValue(nestedValue);
-    }
-    return sanitized;
-  }
-
-  if (typeof value === "string") {
-    return sanitizeRawString(value);
-  }
-
-  return value;
-}
-
-function sanitizeRawString(value) {
-  return String(value)
-    .normalize("NFKC")
-    .replace(/[\u0000-\u001F\u007F]/g, "")
-    .replace(/[<>]/g, "");
-}
-
-function sanitizeText(value, maxLength = 160) {
-  return sanitizeRawString(value).trim().slice(0, maxLength);
-}
-
-function sanitizeEmail(value) {
-  return sanitizeRawString(value).trim().toLowerCase().slice(0, 254);
-}
-
-function sanitizeUppercaseCode(value, maxLength = 24) {
-  return sanitizeRawString(value).trim().toUpperCase().slice(0, maxLength);
-}
-
-function sanitizeDateInput(value) {
-  const normalized = sanitizeRawString(value).trim();
-  if (!normalized) {
-    return "";
-  }
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    throw createHttpError(400, "Date must be in YYYY-MM-DD format.");
-  }
-
-  return normalized;
-}
-
-function parseNumberField(value, fieldName) {
-  if (value === "" || value === null || typeof value === "undefined") {
-    return 0;
-  }
-
-  const number = Number(value);
-  if (!Number.isFinite(number)) {
-    throw createHttpError(400, `${fieldName} must be a valid number.`);
-  }
-
-  return number;
-}
-
-function createHttpError(status, message) {
-  const error = new Error(message);
-  error.status = status;
-  return error;
-}
-
 function logCompanyCreationError(error, context = {}) {
   const details = {
     step: context.step || "unknown",
@@ -3116,20 +2867,4 @@ function logCompanyCreationError(error, context = {}) {
   console.error("Company creation failed.", details);
 }
 
-function sendServerError(res, error, message) {
-  console.error(message, error);
-  if (error?.status) {
-    return res.status(error.status).json({ error: error.message || message });
-  }
 
-  if (error?.name === "ValidationError" || error?.name === "CastError") {
-    return res.status(400).json({ error: "Invalid request data." });
-  }
-
-  const response = { error: message };
-  if (!isProduction) {
-    response.details = error instanceof Error ? error.message : String(error);
-  }
-
-  return res.status(500).json(response);
-}
