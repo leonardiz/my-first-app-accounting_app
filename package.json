@@ -4,7 +4,8 @@
   "private": true,
   "description": "Simple Chart of Accounts management web app",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "jest --verbose"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -17,5 +18,8 @@
     "mongoose": "^8.13.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.7"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2"
   }
 }
